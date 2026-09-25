@@ -1,0 +1,156 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           String         @id @default(uuid())
+  name         String
+  email        String         @unique
+  username     String         @unique
+  passwordHash String
+  role         UserRole
+  active       Boolean        @default(true)
+  createdAt    DateTime       @default(now())
+  sales        Sale[]
+  expenses     Expense[]
+  stockHistory StockHistory[]
+  auditLogs    AuditLog[]
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  MANAGER
+  SELLER
+}
+
+model Category {
+  id       String    @id @default(uuid())
+  name     String    @unique
+  products Product[]
+}
+
+model Unit {
+  id   String @id @default(uuid())
+  name String @unique
+}
+
+model Customer {
+  id         String   @id @default(uuid())
+  name       String
+  phone      String?  @unique
+  email      String?  @unique
+  totalSpent Float    @default(0)
+  createdAt  DateTime @default(now())
+  sales      Sale[]
+}
+
+model Product {
+  id                String         @id @default(uuid())
+  name              String
+  categoryId        String
+  category          Category       @relation(fields: [categoryId], references: [id])
+  description       String         @default("")
+  buyingPrice       Float
+  sellingPrice      Float
+  currentQuantity   Int            @default(0)
+  minimumStockLevel Int            @default(5)
+  unit              String         @default("Piece")
+  supplier          String         @default("General")
+  status            ProductStatus  @default(Active)
+  createdAt         DateTime       @default(now())
+  saleItems         SaleItem[]
+  stockHistory      StockHistory[]
+  size              String?
+  color             String?
+  sku               String?
+}
+
+enum ProductStatus {
+  Active
+  Inactive
+  Discontinued
+}
+
+model Sale {
+  id             String     @id @default(uuid())
+  invoiceNumber  String     @unique
+  sellerId       String
+  seller         User       @relation(fields: [sellerId], references: [id])
+  customerId     String?
+  customer       Customer?  @relation(fields: [customerId], references: [id])
+  customerName   String     @default("Walk-in")
+  totalAmount    Float
+  discountAmount Float      @default(0)
+  discountType   String     @default("PERCENT")
+  salesChannel   String     @default("In-Store")
+  paymentMethod  String     @default("Cash")
+  createdAt      DateTime   @default(now())
+  items          SaleItem[]
+}
+
+model SaleItem {
+  id        String  @id @default(uuid())
+  saleId    String
+  sale      Sale    @relation(fields: [saleId], references: [id])
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  quantity  Int
+  unitPrice Float
+  lineTotal Float
+}
+
+model StockHistory {
+  id                 String   @id @default(uuid())
+  productId          String
+  product            Product  @relation(fields: [productId], references: [id])
+  previousQuantity   Int
+  delta              Int
+  remainingQuantity  Int
+  reason             String   @default("Stock adjustment")
+  createdAt          DateTime @default(now())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id])
+}
+
+model Expense {
+  id         String   @id @default(uuid())
+  category   String
+  amount     Float
+  note       String   @default("")
+  date       DateTime @default(now())
+  createdById String
+  createdBy  User     @relation(fields: [createdById], references: [id])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  title     String
+  message   String
+  type      String
+  read      Boolean  @default(false)
+  role      UserRole
+  createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  action    String
+  target    String
+  details   String
+  createdAt DateTime @default(now())
+}
+
+model BusinessProfile {
+  id       String @id @default("singleton")
+  shopName String @default("Smart Boutique System")
+  currency String @default("RWF")
+  taxRate  Float  @default(0.18)
+  address  String @default("KG 123, Kigali")
+}

@@ -1,0 +1,23 @@
+{
+  "name": "sbs",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace frontend\" \"npm run dev --workspace backend\"",
+    "build": "npm run build --workspace backend && npm run build --workspace frontend",
+    "build:backend": "npm run build --workspace backend",
+    "build:frontend": "npm run build --workspace frontend",
+    "db:generate": "npm run db:generate --workspace backend",
+    "db:seed": "npm run db:seed --workspace backend"
+  },
+  "dependencies": {
+    "concurrently": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19"
+  }
+}

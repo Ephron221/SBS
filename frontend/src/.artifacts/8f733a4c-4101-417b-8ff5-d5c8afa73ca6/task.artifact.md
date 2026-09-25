@@ -1,0 +1,5 @@
+- [ ] Restore `updateQty` functionality in `POSCart.tsx`
+- [ ] Fix `App.css` to eliminate remaining horizontal overflow
+- [ ] Implement "Add New Customer" from POS search dropdown in `POSCart.tsx`
+- [ ] Refine `CustomerSelector.tsx` UI and logic
+- [ ] Verify quantity buttons, responsiveness, and customer workflow
