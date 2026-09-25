@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { User, Search, Check, Loader2 } from 'lucide-react'
 import { api } from '../lib/api'
+import { useToast } from '../context/ToastContext'
 import type { Customer } from '../types'
 
 interface Props {
@@ -9,6 +10,7 @@ interface Props {
 }
 
 export default function CustomerSelector({ selectedCustomerId, onSelect }: Props) {
+  const { toast } = useToast()
   const [customers, setCustomers] = useState<Customer[]>([])
   const [search, setSearch] = useState('')
   const [isOpen, setIsOpen] = useState(false)
@@ -25,7 +27,7 @@ export default function CustomerSelector({ selectedCustomerId, onSelect }: Props
       const res = await api.get('/api/customers')
       setCustomers(res.data.data || [])
     } catch (e) {
-      console.error(e)
+      console.error('[CustomerSelector] Failed to fetch customers:', e)
     } finally {
       setLoading(false)
     }
@@ -42,21 +44,44 @@ export default function CustomerSelector({ selectedCustomerId, onSelect }: Props
 
   const filtered = customers.filter(c => 
     c.name.toLowerCase().includes(search.toLowerCase()) || 
-    c.phone?.includes(search)
+    (c.phone && c.phone.includes(search))
   )
 
   const handleAdd = async () => {
-    if (!newCustomer.name) return
+    const trimmedName = newCustomer.name.trim()
+    if (!trimmedName) {
+      toast.warning('Name Required', 'Please enter a customer name.')
+      return
+    }
+
     setSaving(true)
     try {
-      const res = await api.post('/api/customers', newCustomer)
-      const created = res.data.data
-      setCustomers([created, ...customers])
-      onSelect(created)
+      const payload = {
+        name: trimmedName,
+        phone: newCustomer.phone.trim() || undefined,
+        email: newCustomer.email.trim() || undefined,
+      }
+      const res = await api.post('/api/customers', payload)
+      const customerData = res.data.data
+
+      if (res.data.isExisting) {
+        toast.info('Existing Customer', res.data.message || `Selected existing customer ${customerData.name}`)
+      } else {
+        toast.success('Customer Added', `Customer ${customerData.name} saved and selected.`)
+      }
+
+      // Add to list if not already present
+      setCustomers(prev => {
+        const exists = prev.some(c => c.id === customerData.id)
+        return exists ? prev : [customerData, ...prev]
+      })
+
+      onSelect(customerData)
       setShowAdd(false)
       setNewCustomer({ name: '', phone: '', email: '' })
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Failed to add customer')
+      const msg = err.response?.data?.message || err.message || 'Failed to save customer'
+      toast.error('Customer Error', msg)
     } finally {
       setSaving(false)
     }
@@ -66,26 +91,57 @@ export default function CustomerSelector({ selectedCustomerId, onSelect }: Props
 
   return (
     <div className="field-group" ref={dropdownRef} style={{ position: 'relative' }}>
-      <label style={{ display: 'flex', justifyContent: 'space-between' }}>
-        Customer
-        <button type="button" className="ghost-button" style={{ padding: 0, fontSize: '0.75rem' }} onClick={() => setShowAdd(!showAdd)}>
+      <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span>Customer</span>
+        <button
+          type="button"
+          className="ghost-button"
+          style={{ padding: '0.2rem 0.5rem', fontSize: '0.78rem', height: 'auto' }}
+          onClick={() => setShowAdd(!showAdd)}
+        >
           {showAdd ? 'Cancel' : '+ New Customer'}
         </button>
       </label>
 
       {showAdd ? (
-        <div style={{ background: '#f8fafc', padding: '0.75rem', borderRadius: '10px', border: '1px solid var(--border)', display: 'grid', gap: '0.5rem' }}>
-          <input className="input-field" style={{ padding: '0.4rem' }} placeholder="Name" value={newCustomer.name} onChange={e => setNewCustomer({...newCustomer, name: e.target.value})} />
-          <input className="input-field" style={{ padding: '0.4rem' }} placeholder="Phone" value={newCustomer.phone} onChange={e => setNewCustomer({...newCustomer, phone: e.target.value})} />
-          <button type="button" className="primary-button" style={{ padding: '0.4rem' }} disabled={saving} onClick={handleAdd}>
-            {saving ? <Loader2 className="animate-spin" size={14} /> : 'Save & Select'}
+        <div style={{
+          background: 'var(--bg-card, #f8fafc)',
+          padding: '0.85rem',
+          borderRadius: '10px',
+          border: '1px solid var(--border)',
+          display: 'grid',
+          gap: '0.6rem',
+        }}>
+          <input
+            className="input-field"
+            style={{ padding: '0.5rem 0.75rem', fontSize: '0.85rem' }}
+            placeholder="Full Name (required)"
+            value={newCustomer.name}
+            onChange={e => setNewCustomer(prev => ({ ...prev, name: e.target.value }))}
+            autoFocus
+          />
+          <input
+            className="input-field"
+            style={{ padding: '0.5rem 0.75rem', fontSize: '0.85rem' }}
+            placeholder="Phone Number (e.g. 078...)"
+            value={newCustomer.phone}
+            onChange={e => setNewCustomer(prev => ({ ...prev, phone: e.target.value }))}
+          />
+          <button
+            type="button"
+            className="primary-button"
+            style={{ padding: '0.5rem', fontSize: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
+            disabled={saving || !newCustomer.name.trim()}
+            onClick={handleAdd}
+          >
+            {saving ? <Loader2 className="animate-spin" size={15} /> : 'Save & Select'}
           </button>
         </div>
       ) : (
         <div style={{ position: 'relative' }}>
           <div 
             className="input-field" 
-            style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'white' }}
+            style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
             onClick={() => setIsOpen(!isOpen)}
           >
             <User size={14} className="muted" />
@@ -113,7 +169,7 @@ export default function CustomerSelector({ selectedCustomerId, onSelect }: Props
               </div>
               <ul style={{ listStyle: 'none', margin: 0, padding: '0.25rem', maxHeight: '200px', overflowY: 'auto' }}>
                 <li 
-                  style={{ padding: '0.5rem 0.75rem', borderRadius: '6px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }}
+                  style={{ padding: '0.5rem 0.75rem', borderRadius: '6px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                   onClick={() => { onSelect(null); setIsOpen(false) }}
                   className="list-item-hover"
                 >
@@ -123,7 +179,7 @@ export default function CustomerSelector({ selectedCustomerId, onSelect }: Props
                 {filtered.map(c => (
                   <li 
                     key={c.id}
-                    style={{ padding: '0.5rem 0.75rem', borderRadius: '6px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }}
+                    style={{ padding: '0.5rem 0.75rem', borderRadius: '6px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                     onClick={() => { onSelect(c); setIsOpen(false) }}
                     className="list-item-hover"
                   >
@@ -134,7 +190,11 @@ export default function CustomerSelector({ selectedCustomerId, onSelect }: Props
                     {selectedCustomerId === c.id && <Check size={14} />}
                   </li>
                 ))}
-                {filtered.length === 0 && !loading && <li style={{ padding: '1rem', textAlign: 'center' }} className="muted">No customers found</li>}
+                {filtered.length === 0 && !loading && (
+                  <li style={{ padding: '1rem', textAlign: 'center' }} className="muted">
+                    No customers found
+                  </li>
+                )}
               </ul>
             </div>
           )}

@@ -2,12 +2,6 @@ import { useState } from 'react'
 import { ShieldCheck, Lock, Mail, Loader2, Eye, EyeOff, ChevronRight } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 
-const DEMO_CREDENTIALS = [
-  { role: 'Super Admin', email: 'admin@sbs.rw',   password: 'Diano21@Esron21%', color: '#ef4444' },
-  { role: 'Manager',     email: 'manager@sbs.rw', password: 'Diano21@Esron21%', color: '#f59e0b' },
-  { role: 'Seller',      email: 'seller@sbs.rw',  password: 'Diano21@Esron21%', color: '#10b981' },
-]
-
 export default function LoginPage() {
   const { login, loginError, loginLoading } = useAuth()
   const [form, setForm] = useState({ email: '', password: '' })
@@ -16,10 +10,6 @@ export default function LoginPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     login(form.email, form.password)
-  }
-
-  const fillDemo = (cred: typeof DEMO_CREDENTIALS[0]) => {
-    setForm({ email: cred.email, password: cred.password })
   }
 
   return (
@@ -129,23 +119,14 @@ export default function LoginPage() {
           </button>
         </form>
 
-        {/* Demo Credentials */}
-        <div className="demo-creds">
-          <p>Demo accounts — click to fill:</p>
-          {DEMO_CREDENTIALS.map(c => (
-            <div key={c.role} className="demo-cred-item" onClick={() => fillDemo(c)}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: c.color, flexShrink: 0 }} />
-                <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{c.role}</span>
-              </div>
-              <span style={{ color: 'var(--text-muted)', fontFamily: 'monospace', fontSize: '0.78rem' }}>{c.email}</span>
-            </div>
-          ))}
+        <div style={{ textAlign: 'center', marginTop: '2.25rem' }}>
+          <p className="muted" style={{ margin: 0, fontSize: '0.78rem' }}>
+            © {new Date().getFullYear()} Smart Boutique System. All rights reserved.
+          </p>
+          <p style={{ margin: '0.35rem 0 0', fontSize: '0.78rem', color: 'var(--text-subtle)', fontWeight: 500 }}>
+            Developed by <span style={{ color: 'var(--accent)', fontWeight: 600 }}>Mr. ESron</span>
+          </p>
         </div>
-
-        <p className="muted" style={{ textAlign: 'center', marginTop: '1.5rem', fontSize: '0.78rem' }}>
-          © {new Date().getFullYear()} Smart Boutique System. All rights reserved.
-        </p>
       </div>
     </div>
   )
