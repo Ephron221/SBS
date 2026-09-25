@@ -37,10 +37,23 @@ app.use((req, _res, next) => {
     console.log(`[${ts}] ${req.method} ${req.url}`);
     next();
 });
+// Root endpoint — friendly welcome and status
+app.get('/', (_req, res) => {
+    res.json({
+        success: true,
+        service: 'Smart Boutique System API',
+        version: '1.0.0',
+        developer: 'Mr. ESron',
+        status: 'online',
+        databaseConfigured: Boolean(process.env.DATABASE_URL || process.env.DIRECT_URL),
+        timestamp: new Date().toISOString(),
+    });
+});
 app.get('/api/health', (_req, res) => {
     res.json({
         success: true,
         message: 'SBS backend is running.',
+        databaseConfigured: Boolean(process.env.DATABASE_URL || process.env.DIRECT_URL),
         timestamp: new Date().toISOString(),
         env: process.env.NODE_ENV || 'development',
     });
