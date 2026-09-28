@@ -74,24 +74,8 @@ export default function POSCart({ products, onSaleComplete, search, setSearch }:
     return () => window.removeEventListener('keydown', handleGlobalKey)
   }, [])
 
-  useEffect(() => {
-    const input = document.getElementById('pos-search-input')
-    if (!input) return
-
-    const onFocus = () => setIsSearchFocused(true)
-    const onBlur = () => setTimeout(() => setIsSearchFocused(false), 200) // Delay to allow clicks on dropdown
-    const onKey = (e: any) => handleKeyDown(e)
-
-    input.addEventListener('focus', onFocus)
-    input.addEventListener('blur', onBlur)
-    input.addEventListener('keydown', onKey)
-
-    return () => {
-      input.removeEventListener('focus', onFocus)
-      input.removeEventListener('blur', onBlur)
-      input.removeEventListener('keydown', onKey)
-    }
-  }, [search, products, customers]) // Re-bind when data changes so handleKeyDown has latest state
+  const selectedIndexRef = useRef(selectedIndex)
+  selectedIndexRef.current = selectedIndex
 
   const { matches, related, matchedCustomers } = useMemo(() => {
     const query = search.toLowerCase().trim();
@@ -123,7 +107,6 @@ export default function POSCart({ products, onSaleComplete, search, setSearch }:
       }).slice(0, 4)
     }
 
-
     const matchedCustomers = customers.filter(c => 
       c.name.toLowerCase().includes(query) || 
       c.phone?.includes(query)
@@ -133,9 +116,12 @@ export default function POSCart({ products, onSaleComplete, search, setSearch }:
   }, [search, products, customers])
 
   const combinedFiltered = [...matches, ...related, ...matchedCustomers]
+  const combinedFilteredRef = useRef(combinedFiltered)
+  combinedFilteredRef.current = combinedFiltered
 
   useEffect(() => {
     setSelectedIndex(0)
+    selectedIndexRef.current = 0
   }, [search])
 
   const addToCart = (product: Product) => {
@@ -154,21 +140,38 @@ export default function POSCart({ products, onSaleComplete, search, setSearch }:
       }
       return [...prev, { product, quantity: 1 }]
     })
+    // Instantly close search dropdown and reveal Current Order
     setSearch('')
+    setIsSearchFocused(false)
+    toast.success('Added to Order', `${product.name} added to Current Order.`)
     setCartPulse(true)
     setTimeout(() => setCartPulse(false), 300)
-    document.getElementById('pos-search-input')?.focus()
+    const input = document.getElementById('pos-search-input') as HTMLInputElement | null
+    if (input) input.blur()
   }
 
   const handleKeyDown = (e: KeyboardEvent) => {
-    if (combinedFiltered.length === 0) return
+    const list = combinedFilteredRef.current
+    if (list.length === 0) return
+
     if (e.key === 'ArrowDown') {
-      e.preventDefault(); setSelectedIndex(prev => (prev + 1) % combinedFiltered.length)
+      e.preventDefault()
+      setSelectedIndex((prev) => {
+        const next = (prev + 1) % list.length
+        selectedIndexRef.current = next
+        return next
+      })
     } else if (e.key === 'ArrowUp') {
-      e.preventDefault(); setSelectedIndex(prev => (prev - 1 + combinedFiltered.length) % combinedFiltered.length)
+      e.preventDefault()
+      setSelectedIndex((prev) => {
+        const next = (prev - 1 + list.length) % list.length
+        selectedIndexRef.current = next
+        return next
+      })
     } else if (e.key === 'Enter') {
-      e.preventDefault(); 
-      const selected = combinedFiltered[selectedIndex]
+      e.preventDefault()
+      const currIdx = selectedIndexRef.current
+      const selected = list[currIdx]
       if (selected) {
         if ('sellingPrice' in selected) {
           addToCart(selected as Product)
@@ -176,12 +179,39 @@ export default function POSCart({ products, onSaleComplete, search, setSearch }:
           setSelectedCustomer(selected as Customer)
           setSearch('')
           setIsSearchFocused(false)
+          const input = document.getElementById('pos-search-input') as HTMLInputElement | null
+          if (input) input.blur()
         }
       }
     } else if (e.key === 'Escape') {
-      setSearch(''); setIsSearchFocused(false); (e.target as HTMLInputElement).blur()
+      setSearch('')
+      setIsSearchFocused(false)
+      ;(e.target as HTMLInputElement)?.blur()
     }
   }
+
+  useEffect(() => {
+    const input = document.getElementById('pos-search-input')
+    if (!input) return
+
+    const onFocus = () => setIsSearchFocused(true)
+    const onBlur = () => {
+      // Small timeout allows click events to register
+      setTimeout(() => setIsSearchFocused(false), 250)
+    }
+    const onKey = (e: any) => handleKeyDown(e)
+
+    input.addEventListener('focus', onFocus)
+    input.addEventListener('blur', onBlur)
+    input.addEventListener('keydown', onKey)
+
+    return () => {
+      input.removeEventListener('focus', onFocus)
+      input.removeEventListener('blur', onBlur)
+      input.removeEventListener('keydown', onKey)
+    }
+  }, [search, products, customers])
+
 
   const updateQty = (id: string, qty: number) => {
     if (qty < 1) return removeFromCart(id)
@@ -254,11 +284,21 @@ export default function POSCart({ products, onSaleComplete, search, setSearch }:
 
   const ProductResultItem = ({ p, idx, isRelated = false }: { p: Product, idx: number, isRelated?: boolean }) => {
     const status = getStockStatus(p);
+    const handleSelect = (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      addToCart(p);
+    };
+
     return (
       <li 
         key={p.id} 
-        onClick={() => addToCart(p)} 
-        onMouseEnter={() => setSelectedIndex(idx)} 
+        onClick={handleSelect} 
+        onMouseDown={handleSelect}
+        onMouseEnter={() => {
+          setSelectedIndex(idx)
+          selectedIndexRef.current = idx
+        }} 
         style={{ 
           display: 'flex', 
           justifyContent: 'space-between', 
@@ -318,42 +358,58 @@ export default function POSCart({ products, onSaleComplete, search, setSearch }:
     )
   }
 
-  const CustomerResultItem = ({ c, idx }: { c: Customer, idx: number }) => (
-    <li 
-      key={c.id} 
-      onClick={() => { setSelectedCustomer(c); setSearch(''); setIsSearchFocused(false) }} 
-      onMouseEnter={() => setSelectedIndex(idx)} 
-      style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center', 
-        padding: '1rem 1.25rem', 
-        borderRadius: '16px', 
-        background: selectedIndex === idx ? 'var(--bg-main)' : 'white', 
-        cursor: 'pointer', 
-        border: '1px solid', 
-        borderColor: selectedIndex === idx ? 'var(--primary)' : 'var(--border)', 
-        transition: 'all 0.2s ease',
-        marginBottom: '0.5rem',
-        transform: selectedIndex === idx ? 'translateX(6px)' : 'none'
-      }}
-    >
-      <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center' }}>
-        <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: selectedIndex === idx ? 'var(--primary)' : '#eff6ff', color: selectedIndex === idx ? 'white' : '#1e40af', display: 'grid', placeItems: 'center', border: '1px solid var(--border)' }}>
-          <User size={20} />
+  const CustomerResultItem = ({ c, idx }: { c: Customer, idx: number }) => {
+    const handleSelect = (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setSelectedCustomer(c);
+      setSearch('');
+      setIsSearchFocused(false);
+      const input = document.getElementById('pos-search-input') as HTMLInputElement | null;
+      if (input) input.blur();
+    };
+
+    return (
+      <li 
+        key={c.id} 
+        onClick={handleSelect} 
+        onMouseDown={handleSelect}
+        onMouseEnter={() => {
+          setSelectedIndex(idx)
+          selectedIndexRef.current = idx
+        }} 
+        style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center', 
+          padding: '1rem 1.25rem', 
+          borderRadius: '16px', 
+          background: selectedIndex === idx ? 'var(--bg-main)' : 'white', 
+          cursor: 'pointer', 
+          border: '1px solid', 
+          borderColor: selectedIndex === idx ? 'var(--primary)' : 'var(--border)', 
+          transition: 'all 0.2s ease',
+          marginBottom: '0.5rem',
+          transform: selectedIndex === idx ? 'translateX(6px)' : 'none'
+        }}
+      >
+        <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center' }}>
+          <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: selectedIndex === idx ? 'var(--primary)' : '#eff6ff', color: selectedIndex === idx ? 'white' : '#1e40af', display: 'grid', placeItems: 'center', border: '1px solid var(--border)' }}>
+            <User size={20} />
+          </div>
+          <div style={{ textAlign: 'left' }}>
+            <h4 style={{ fontSize: '1rem', fontWeight: 800, margin: 0, color: 'var(--primary)' }}>
+              {highlightMatch(c.name, search)}
+            </h4>
+            <p className="muted" style={{ fontSize: '0.75rem', margin: 0 }}>{c.phone || 'No phone'}</p>
+          </div>
         </div>
-        <div style={{ textAlign: 'left' }}>
-          <h4 style={{ fontSize: '1rem', fontWeight: 800, margin: 0, color: 'var(--primary)' }}>
-            {highlightMatch(c.name, search)}
-          </h4>
-          <p className="muted" style={{ fontSize: '0.75rem', margin: 0 }}>{c.phone || 'No phone'}</p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--accent)', fontWeight: 700, fontSize: '0.8rem' }}>
+          SELECT CUSTOMER <ArrowRight size={14} />
         </div>
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--accent)', fontWeight: 700, fontSize: '0.8rem' }}>
-        SELECT CUSTOMER <ArrowRight size={14} />
-      </div>
-    </li>
-  )
+      </li>
+    )
+  }
 
   const fastSellingProducts = useMemo(() => {
     // Build purchase totals from actual sales history
@@ -427,20 +483,24 @@ export default function POSCart({ products, onSaleComplete, search, setSearch }:
         <div className="pos-left">
           <div style={{ position: 'relative' }} ref={searchContainerRef}>
             {isSearchFocused && (combinedFiltered.length > 0 || search) && (
-              <ul className="pos-dropdown animate-fade-in" style={{
-                position: 'absolute',
-                top: '-1.5rem',
-                left: 0,
-                right: 0,
-                border: '1px solid var(--border)',
-                boxShadow: '0 25px 50px -12px rgba(0,0,0,0.15)',
-                borderRadius: '20px',
-                padding: '1rem',
-                maxHeight: '600px',
-                overflowY: 'auto',
-                zIndex: 100,
-                background: 'white'
-              }}>
+              <ul 
+                className="pos-dropdown animate-fade-in" 
+                onMouseDown={(e) => e.preventDefault()}
+                style={{
+                  position: 'absolute',
+                  top: '-1.5rem',
+                  left: 0,
+                  right: 0,
+                  border: '1px solid var(--border)',
+                  boxShadow: '0 25px 50px -12px rgba(0,0,0,0.15)',
+                  borderRadius: '20px',
+                  padding: '1rem',
+                  maxHeight: '600px',
+                  overflowY: 'auto',
+                  zIndex: 100,
+                  background: 'white'
+                }}
+              >
                 {matches.length > 0 && (
                   <>
                     <li style={{ padding: '0.5rem 0.8rem', fontSize: '0.75rem', fontWeight: 900, color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
