@@ -108,7 +108,7 @@ export default function POSCart({ products, onSaleComplete, search, setSearch }:
       const skuMatch = (p.sku || '').toLowerCase().includes(query)
       const catName = (p as any).categoryName || (typeof p.category === 'string' ? p.category : (p.category as any)?.name) || ''
       const catMatch = catName.toLowerCase().includes(query)
-      return (nameMatch || skuMatch || catMatch) && p.currentQuantity > 0
+      return (nameMatch || skuMatch || catMatch)
     }).slice(0, 8)
 
     let related: Product[] = []
@@ -119,10 +119,10 @@ export default function POSCart({ products, onSaleComplete, search, setSearch }:
       related = products.filter(p => {
         const pCat = (p as any).categoryName || (typeof p.category === 'string' ? p.category : (p.category as any)?.name)
         return pCat === topMatchCategory && 
-               !matches.find(m => m.id === p.id) &&
-               p.currentQuantity > 0
+               !matches.find(m => m.id === p.id)
       }).slice(0, 4)
     }
+
 
     const matchedCustomers = customers.filter(c => 
       c.name.toLowerCase().includes(query) || 
@@ -139,9 +139,19 @@ export default function POSCart({ products, onSaleComplete, search, setSearch }:
   }, [search])
 
   const addToCart = (product: Product) => {
+    if (product.currentQuantity <= 0) {
+      toast.warning('Out of Stock', `${product.name} currently has 0 ${product.unit || 'units'} in inventory. Please add stock in the Products page first.`)
+      return
+    }
     setCart((prev) => {
       const existing = prev.find((i) => i.product.id === product.id)
-      if (existing) return prev.map((i) => i.product.id === product.id ? { ...i, quantity: Math.min(i.quantity + 1, product.currentQuantity) } : i)
+      if (existing) {
+        if (existing.quantity >= product.currentQuantity) {
+          toast.warning('Max Stock Reached', `Only ${product.currentQuantity} ${product.unit} available in stock.`)
+          return prev
+        }
+        return prev.map((i) => i.product.id === product.id ? { ...i, quantity: i.quantity + 1 } : i)
+      }
       return [...prev, { product, quantity: 1 }]
     })
     setSearch('')

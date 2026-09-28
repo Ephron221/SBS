@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { api } from '../lib/api'
-import { X, ArrowUpCircle, ArrowDownCircle, Info, Loader2, MessageSquare, Package, History } from 'lucide-react'
+import { X, ArrowUpCircle, ArrowDownCircle, Info, Loader2, MessageSquare, Package, History, Boxes, Calculator } from 'lucide-react'
 
 interface Product { id: string; name: string; currentQuantity: number; unit: string }
 
@@ -11,21 +11,40 @@ interface Props {
 }
 
 export default function StockAdjustModal({ product, onSaved, onCancel }: Props) {
+  const [calcMode, setCalcMode] = useState<'units' | 'casiye'>('units')
   const [delta, setDelta] = useState(1)
+  const [boxCount, setBoxCount] = useState(1)
+
+  // Smart detection for default items per casiye/box based on product name
+  const defaultPackSize = useMemo(() => {
+    const n = product.name.toUpperCase()
+    if (n.includes('65CL') || n.includes('MANINI') || n.includes('2L') || n.includes('1.5L') || n.includes('LIQUOR') || n.includes('SMINOFF')) return 12
+    if (n.includes('ITABI') || n.includes('CIGARETTE')) return 20
+    return 24 // Standard Rwandan beer/soda crate (casiye)
+  }, [product.name])
+
+  const [unitsPerBox, setUnitsPerBox] = useState(defaultPackSize)
   const [type, setType] = useState<'add' | 'remove'>('add')
   const [reason, setReason] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+
+  // Effective units to adjust
+  const effectiveDelta = calcMode === 'casiye' ? Math.max(1, boxCount * unitsPerBox) : Math.max(1, delta)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
     setError('')
     try {
+      const defaultReason = calcMode === 'casiye'
+        ? `${type === 'add' ? 'Restocked' : 'Removed'} ${boxCount} Casiye/Box (${effectiveDelta} ${product.unit}s)`
+        : (type === 'add' ? 'Restock' : 'Reduction')
+
       await api.post('/api/stock/adjust', {
         productId: product.id,
-        delta: type === 'add' ? delta : -delta,
-        reason: reason || (type === 'add' ? 'Restock' : 'Reduction'),
+        delta: type === 'add' ? effectiveDelta : -effectiveDelta,
+        reason: reason || defaultReason,
       })
       onSaved()
     } catch (err: any) {
@@ -120,19 +139,130 @@ export default function StockAdjustModal({ product, onSaved, onCancel }: Props) 
             </div>
 
             <div className="field-group">
-              <label className="eyebrow">Change Quantity</label>
-              <div style={{ position: 'relative' }}>
-                <Info size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
-                <input 
-                  className="input-field"
-                  type="number" 
-                  min="1" 
-                  value={delta} 
-                  onChange={(e) => setDelta(Number(e.target.value))} 
-                  required 
-                  style={{ paddingLeft: '2.5rem', fontSize: '1.1rem', fontWeight: 700 }}
-                />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                <label className="eyebrow" style={{ margin: 0 }}>Calculation Mode</label>
+                <div style={{ display: 'flex', gap: '0.35rem', background: '#f1f5f9', padding: '0.2rem', borderRadius: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setCalcMode('units')}
+                    style={{
+                      padding: '0.25rem 0.65rem',
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      borderRadius: '6px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      background: calcMode === 'units' ? 'var(--primary)' : 'transparent',
+                      color: calcMode === 'units' ? 'white' : 'var(--text-muted)',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    Single {product.unit}s
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCalcMode('casiye')}
+                    style={{
+                      padding: '0.25rem 0.65rem',
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      borderRadius: '6px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      background: calcMode === 'casiye' ? 'var(--primary)' : 'transparent',
+                      color: calcMode === 'casiye' ? 'white' : 'var(--text-muted)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.3rem',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <Boxes size={13} /> Casiye / Boxes
+                  </button>
+                </div>
               </div>
+
+              {calcMode === 'units' ? (
+                <div style={{ position: 'relative' }}>
+                  <Info size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
+                  <input 
+                    className="input-field"
+                    type="number" 
+                    min="1" 
+                    value={delta} 
+                    onChange={(e) => setDelta(Math.max(1, Number(e.target.value)))} 
+                    required 
+                    style={{ paddingLeft: '2.5rem', fontSize: '1.1rem', fontWeight: 700 }}
+                  />
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gap: '0.75rem', background: 'var(--bg-main)', padding: '1rem', borderRadius: '14px', border: '1px solid var(--border)' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.3rem', display: 'block' }}>
+                        Number of Casiye / Boxes
+                      </label>
+                      <input 
+                        className="input-field"
+                        type="number" 
+                        min="1" 
+                        value={boxCount} 
+                        onChange={(e) => setBoxCount(Math.max(1, Number(e.target.value)))} 
+                        required 
+                        style={{ fontSize: '1.05rem', fontWeight: 800 }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.3rem', display: 'block' }}>
+                        {product.unit}s per Casiye / Box
+                      </label>
+                      <input 
+                        className="input-field"
+                        type="number" 
+                        min="1" 
+                        value={unitsPerBox} 
+                        onChange={(e) => setUnitsPerBox(Math.max(1, Number(e.target.value)))} 
+                        required 
+                        style={{ fontSize: '1.05rem', fontWeight: 800 }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Quick Preset Buttons for Pack Size */}
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)' }}>Presets:</span>
+                    {[24, 12, 20, 6].map(size => (
+                      <button
+                        key={size}
+                        type="button"
+                        onClick={() => setUnitsPerBox(size)}
+                        style={{
+                          fontSize: '0.72rem',
+                          fontWeight: 700,
+                          padding: '0.2rem 0.55rem',
+                          borderRadius: '6px',
+                          border: unitsPerBox === size ? '1px solid var(--accent)' : '1px solid var(--border)',
+                          background: unitsPerBox === size ? 'rgba(217, 145, 46, 0.15)' : 'white',
+                          color: unitsPerBox === size ? 'var(--primary)' : 'var(--text-muted)',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {size} / Box
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Live Conversion Banner */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem', background: '#dbeafe', borderRadius: '10px', color: '#1e40af' }}>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <Calculator size={16} /> Total: {boxCount} Casiye × {unitsPerBox}
+                    </span>
+                    <span style={{ fontSize: '1.05rem', fontWeight: 900 }}>
+                      = {effectiveDelta} {product.unit}s
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="field-group">
