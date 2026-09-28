@@ -52,17 +52,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProducts((p.data.data || []).map(normalize))
     setSales(s.data.data || [])
     setNotifications(n.data.data || [])
+    // Reports available to everyone; Finance and Audit only for managers
+    const extras = await Promise.allSettled([
+      api.get('/api/reports/summary'),
+      ...(man ? [api.get('/api/finance'), api.get('/api/audit-logs')] : []),
+    ])
+    const rResult = extras[0]
+    if (rResult.status === 'fulfilled') setReports(rResult.value.data.data || null)
     if (man) {
-      const [f, r, a] = await Promise.all([
-        api.get('/api/finance'),
-        api.get('/api/reports/summary'),
-        api.get('/api/audit-logs'),
-      ])
-      setFinance(f.data.data || null)
-      setReports(r.data.data || null)
-      setAuditLogs(a.data.data || [])
+      const fResult = extras[1]
+      const aResult = extras[2]
+      if (fResult?.status === 'fulfilled') setFinance((fResult as PromiseFulfilledResult<any>).value.data.data || null)
+      if (aResult?.status === 'fulfilled') setAuditLogs((aResult as PromiseFulfilledResult<any>).value.data.data || [])
     }
   }
+
 
   const refreshAll = async () => { if (session) await loadData(session.role) }
 

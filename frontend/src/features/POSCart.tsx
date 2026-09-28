@@ -29,7 +29,7 @@ interface Props {
 }
 
 export default function POSCart({ products, onSaleComplete, search, setSearch }: Props) {
-  const { session } = useAuth()
+  const { session, sales: allSales } = useAuth()
   const { toast } = useToast()
   const [cart, setCart] = useState<CartItem[]>([])
   const [isSearchFocused, setIsSearchFocused] = useState(false)
@@ -346,8 +346,30 @@ export default function POSCart({ products, onSaleComplete, search, setSearch }:
   )
 
   const fastSellingProducts = useMemo(() => {
-    return products.filter(p => p.currentQuantity > 0).sort((a, b) => b.currentQuantity - a.currentQuantity).slice(0, 10)
-  }, [products])
+    // Build purchase totals from actual sales history
+    const purchaseCount: Record<string, number> = {}
+    // Build a name-to-id map as fallback if productId not in response
+    const nameToId: Record<string, string> = {}
+    for (const p of products) nameToId[p.name.toLowerCase()] = p.id
+
+    for (const sale of allSales) {
+      for (const item of (sale.items ?? [])) {
+        // Prefer explicit productId; fall back to matching by product name
+        const pid = item.productId ?? nameToId[item.product?.name?.toLowerCase() ?? '']
+        if (pid) purchaseCount[pid] = (purchaseCount[pid] ?? 0) + (item.quantity ?? 1)
+      }
+    }
+    const hasSalesData = Object.keys(purchaseCount).length > 0
+    return products
+      .filter(p => p.currentQuantity > 0)
+      .sort((a, b) => {
+        if (hasSalesData) {
+          return (purchaseCount[b.id] ?? 0) - (purchaseCount[a.id] ?? 0)
+        }
+        return b.currentQuantity - a.currentQuantity
+      })
+      .slice(0, 10)
+  }, [products, allSales])
 
   const removeFromCart = (id: string) => setCart((prev) => prev.filter((i) => i.product.id !== id))
 

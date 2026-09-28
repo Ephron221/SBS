@@ -26,6 +26,7 @@ export type NormalizedProduct = Omit<Product, 'category'> & {
 }
 export interface SaleItem {
   id: string;
+  productId?: string;
   quantity: number;
   unitPrice: number;
   lineTotal: number;

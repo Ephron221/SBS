@@ -5,7 +5,7 @@ import { db } from '../../db.js'
 export function registerReportRoutes(app: any, _store: any) {
   const router = Router()
 
-  router.get('/summary', authenticate(_store), restrictTo('MANAGER', 'SUPER_ADMIN'), async (req: AuthRequest, res: Response) => {
+  router.get('/summary', authenticate(_store), async (req: AuthRequest, res: Response) => {
     const { from, to } = req.query as { from?: string; to?: string }
     const dateFilter = from && to ? { createdAt: { gte: new Date(from), lte: new Date(to) } } : {}
     const expenseDateFilter = from && to ? { date: { gte: new Date(from), lte: new Date(to) } } : {}

@@ -58,13 +58,19 @@ export default function Layout({ children }: { children: ReactNode }) {
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false)
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null)
+  // Local copy of notifications for instant dismiss without waiting for server round-trip
+  const [localNotifications, setLocalNotifications] = useState<typeof notifications>([])
   const searchRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const mainPanelRef = useRef<HTMLElement>(null)
   const navigate = useNavigate()
   const location = useLocation()
 
-  const unreadCount = useMemo(() => notifications.filter(n => !n.read).length, [notifications])
+  // Sync from AuthContext whenever server pushes new notifications
+  useEffect(() => { setLocalNotifications(notifications) }, [notifications])
+
+  const unreadCount = useMemo(() => localNotifications.filter(n => !n.read).length, [localNotifications])
+
 
   // Close search on outside click
   useEffect(() => {
@@ -130,12 +136,22 @@ export default function Layout({ children }: { children: ReactNode }) {
     setSearchQuery('')
   }, [])
 
+  const markOneNotificationRead = async (id: string) => {
+    // Optimistically remove from local state immediately
+    setLocalNotifications(prev => prev.filter(n => n.id !== id))
+    try {
+      await api.patch(`/api/notifications/${id}/read`, {})
+    } catch { /* Revert not critical; list refreshes every 10s */ }
+  }
+
   const markAllNotificationsRead = async () => {
+    setLocalNotifications([])
     try {
       await api.patch('/api/notifications/read-all', {})
       await refreshAll()
     } catch { /* The notification list remains available if the update fails. */ }
   }
+
 
   if (!session) return null
 
@@ -145,8 +161,8 @@ export default function Layout({ children }: { children: ReactNode }) {
     { to: '/sales',     icon: Receipt,          label: 'Sales / POS' },
     ...(isManager ? [
       { to: '/finance',  icon: Wallet,       label: 'Finance' },
-      { to: '/reports',  icon: ClipboardList, label: 'Reports' },
     ] : []),
+    { to: '/reports',  icon: ClipboardList, label: 'Reports' },
     { to: '/activity', icon: Bell, label: 'Activity', badge: unreadCount > 0 ? unreadCount : undefined },
     ...(isAdmin ? [
       { to: '/users',    icon: UserCog,  label: 'Users' },
@@ -403,13 +419,17 @@ export default function Layout({ children }: { children: ReactNode }) {
                     {unreadCount > 0 && <button onClick={markAllNotificationsRead}>Mark all read</button>}
                   </div>
                   <div className="notification-dropdown-list">
-                    {notifications.length === 0 ? (
+                    {localNotifications.length === 0 ? (
                       <p className="notification-empty">No new activity yet.</p>
-                    ) : notifications.slice(0, 6).map(notification => (
+                    ) : localNotifications.slice(0, 6).map(notification => (
                       <button
                         key={notification.id}
                         className={`notification-item ${notification.read ? '' : 'unread'}`}
-                        onClick={() => { setIsNotificationsOpen(false); navigate('/activity') }}
+                        onClick={() => {
+                          markOneNotificationRead(notification.id)
+                          setIsNotificationsOpen(false)
+                          navigate('/activity')
+                        }}
                       >
                         <span className="notification-item-icon"><Bell size={15} /></span>
                         <span>
@@ -424,6 +444,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                   </button>
                 </div>
               )}
+
             </div>
 
             {/* Dark Mode Toggle */}
