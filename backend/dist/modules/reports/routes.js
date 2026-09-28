@@ -1,9 +1,9 @@
 import { Router } from 'express';
-import { authenticate, restrictTo } from '../../middleware/auth.js';
+import { authenticate } from '../../middleware/auth.js';
 import { db } from '../../db.js';
 export function registerReportRoutes(app, _store) {
     const router = Router();
-    router.get('/summary', authenticate(_store), restrictTo('MANAGER', 'SUPER_ADMIN'), async (req, res) => {
+    router.get('/summary', authenticate(_store), async (req, res) => {
         const { from, to } = req.query;
         const dateFilter = from && to ? { createdAt: { gte: new Date(from), lte: new Date(to) } } : {};
         const expenseDateFilter = from && to ? { date: { gte: new Date(from), lte: new Date(to) } } : {};

@@ -1,18 +1,21 @@
 import React, { useState } from 'react'
 import { api } from '../lib/api'
-import { X, Save, UserPlus, Mail, Fingerprint, KeyRound, Shield, Loader2 } from 'lucide-react'
+import { X, Save, UserPlus, UserCog, Mail, Fingerprint, KeyRound, Shield, Loader2 } from 'lucide-react'
+import type { SBSUser } from '../types'
 
 interface Props {
+  user?: SBSUser | null
   onSaved: (user: any) => void
   onCancel: () => void
 }
 
-export default function UserForm({ onSaved, onCancel }: Props) {
+export default function UserForm({ user, onSaved, onCancel }: Props) {
+  const isEditing = Boolean(user)
   const [form, setForm] = useState({
-    name: '',
-    email: '',
-    username: '',
-    role: 'SELLER',
+    name: user?.name || '',
+    email: user?.email || '',
+    username: user?.username || '',
+    role: user?.role || 'SELLER',
     password: '',
   })
   
@@ -26,10 +29,24 @@ export default function UserForm({ onSaved, onCancel }: Props) {
     setSaving(true)
     setError('')
     try {
-      const res = await api.post('/api/admin/users', form)
-      onSaved(res.data.user)
+      if (isEditing && user) {
+        const payload: any = {
+          name: form.name,
+          email: form.email,
+          username: form.username,
+          role: form.role,
+        }
+        const res = await api.patch(`/api/admin/users/${user.id}`, payload)
+        if (form.password) {
+          await api.post(`/api/admin/users/${user.id}/reset-password`, { newPassword: form.password })
+        }
+        onSaved(res.data.user)
+      } else {
+        const res = await api.post('/api/admin/users', form)
+        onSaved(res.data.user)
+      }
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to create user.')
+      setError(err.response?.data?.message || (isEditing ? 'Failed to update user.' : 'Failed to create user.'))
     } finally {
       setSaving(false)
     }
@@ -41,9 +58,11 @@ export default function UserForm({ onSaved, onCancel }: Props) {
         <div className="panel-head" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '1rem', marginBottom: '1.5rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <div className="stat-icon" style={{ background: 'var(--primary)', color: 'white', width: '36px', height: '36px' }}>
-              <UserPlus size={20} />
+              {isEditing ? <UserCog size={20} /> : <UserPlus size={20} />}
             </div>
-            <h3 style={{ fontSize: '1.25rem' }}>Register New Team Member</h3>
+            <h3 style={{ fontSize: '1.25rem' }}>
+              {isEditing ? `Edit User: ${user?.name}` : 'Register New Team Member'}
+            </h3>
           </div>
           <button className="ghost-button icon-btn" onClick={onCancel}><X size={20} /></button>
         </div>
@@ -79,7 +98,7 @@ export default function UserForm({ onSaved, onCancel }: Props) {
               </div>
             </div>
 
-            <p className="eyebrow" style={{ marginTop: '0.5rem' }}>Account Security</p>
+            <p className="eyebrow" style={{ marginTop: '0.5rem' }}>Account Security & Access</p>
 
             <div className="field-group">
               <label>Login Username</label>
@@ -96,20 +115,22 @@ export default function UserForm({ onSaved, onCancel }: Props) {
               </div>
             </div>
 
-            <div className="field-group">
-              <label>Temporary Password</label>
-              <div style={{ position: 'relative' }}>
-                <KeyRound size={14} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
-                <input 
-                  className="input-field" 
-                  style={{ paddingLeft: '2.5rem', width: '100%' }} 
-                  type="password" 
-                  value={form.password} 
-                  onChange={(e) => set('password', e.target.value)} 
-                  placeholder="••••••••" 
-                />
+            {!isEditing ? (
+              <div className="field-group">
+                <label>Initial Password</label>
+                <div style={{ position: 'relative' }}>
+                  <KeyRound size={14} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
+                  <input 
+                    className="input-field" 
+                    style={{ paddingLeft: '2.5rem', width: '100%' }} 
+                    type="password" 
+                    value={form.password} 
+                    onChange={(e) => set('password', e.target.value)} 
+                    placeholder="••••••••" 
+                  />
+                </div>
               </div>
-            </div>
+            ) : null}
 
             <div className="field-group">
               <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}><Shield size={14} /> System Access Role</label>
@@ -139,7 +160,7 @@ export default function UserForm({ onSaved, onCancel }: Props) {
               style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.8rem 2rem', background: 'var(--primary)', color: 'white' }}
             >
               {saving ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
-              Create System Account
+              {isEditing ? 'Save Changes' : 'Create System Account'}
             </button>
           </div>
         </form>
