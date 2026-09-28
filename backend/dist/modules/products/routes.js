@@ -104,6 +104,37 @@ export function registerProductRoutes(app, _store) {
             res.status(500).json({ success: false, message: 'Failed to update product' });
         }
     });
+    router.delete('/:id', authenticate(_store), restrictTo('SUPER_ADMIN'), async (req, res) => {
+        const id = String(req.params.id);
+        try {
+            const existing = await db.product.findUnique({ where: { id } });
+            if (!existing)
+                return res.status(404).json({ success: false, message: 'Product not found.' });
+            // Check if product was already sold in any transactions
+            const salesCount = await db.saleItem.count({ where: { productId: id } });
+            if (salesCount > 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Cannot delete "${existing.name}" because it is part of ${salesCount} existing sale transaction(s). Please edit and set status to "Inactive" to hide it instead.`
+                });
+            }
+            // Clean up stock adjustments recorded for this product
+            await db.stockHistory.deleteMany({ where: { productId: id } });
+            await db.product.delete({ where: { id } });
+            await db.auditLog.create({
+                data: {
+                    userId: req.user.id,
+                    action: 'Deleted product',
+                    target: id,
+                    details: `Deleted product ${existing.name}`
+                }
+            });
+            res.json({ success: true, message: `Product ${existing.name} has been deleted.` });
+        }
+        catch (error) {
+            res.status(500).json({ success: false, message: 'Failed to delete product', error: String(error) });
+        }
+    });
     router.get('/:id/history', authenticate(_store), async (req, res) => {
         const id = String(req.params.id);
         try {

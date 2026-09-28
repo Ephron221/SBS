@@ -1,17 +1,21 @@
 import { useMemo, useRef, useState } from 'react'
-import { Pencil, Plus, Search, Package, AlertTriangle, CheckCircle, SlidersHorizontal, Tag, Barcode, ArrowRightLeft, ArrowLeftRight, ChevronLeft, ChevronRight, Boxes } from 'lucide-react'
+import { Pencil, Plus, Search, Package, AlertTriangle, CheckCircle, SlidersHorizontal, Tag, Barcode, ArrowRightLeft, ArrowLeftRight, ChevronLeft, ChevronRight, Boxes, Trash2, Loader2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import { api } from '../lib/api'
 import ProductForm from '../features/ProductForm'
 import StockAdjustModal from '../features/StockAdjustModal'
 import type { NormalizedProduct } from '../types'
 import { useToast } from '../context/ToastContext'
+import { useConfirm } from '../context/ConfirmContext'
 
 export default function ProductsPage() {
-  const { products, isManager, refreshAll } = useAuth()
+  const { products, isManager, isAdmin, refreshAll } = useAuth()
   const { toast } = useToast()
+  const { confirm } = useConfirm()
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<NormalizedProduct | null>(null)
   const [adjusting, setAdjusting] = useState<NormalizedProduct | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [stockFilter, setStockFilter] = useState<'all' | 'low' | 'out' | 'healthy'>('all')
   const [categoryFilter, setCategoryFilter] = useState('all')
@@ -49,6 +53,28 @@ export default function ProductsPage() {
     await refreshAll()
     toast.success('Stock Adjusted', 'Inventory levels updated successfully.')
   }
+
+  const handleDelete = async (p: NormalizedProduct) => {
+    const ok = await confirm({
+      title: `Delete ${p.name}?`,
+      message: `Are you sure you want to permanently delete "${p.name}"? This action cannot be undone.`,
+      confirmLabel: 'Delete Product',
+      danger: true,
+    })
+    if (!ok) return
+
+    setDeletingId(p.id)
+    try {
+      await api.delete(`/api/products/${p.id}`)
+      toast.success('Product Deleted', `"${p.name}" was removed from the catalog.`)
+      await refreshAll()
+    } catch (err: any) {
+      toast.error('Delete Failed', err.response?.data?.message || 'Could not delete product.')
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
 
   const getStockStatus = (p: NormalizedProduct) => {
     if (p.currentQuantity <= 0) return { label: 'Out of Stock', class: 'badge-danger', icon: AlertTriangle, color: '#ef4444' }
@@ -228,6 +254,22 @@ export default function ProductsPage() {
                       >
                         <ArrowRightLeft size={15} /> Adjust stock
                       </button>
+                      {isAdmin && (
+                        <button
+                          className="table-action-button"
+                          aria-label={`Delete ${p.name}`}
+                          onClick={() => handleDelete(p)}
+                          disabled={deletingId === p.id}
+                          style={{
+                            color: '#ef4444',
+                            border: '1px solid #fee2e2',
+                            background: '#fef2f2'
+                          }}
+                        >
+                          {deletingId === p.id ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
+                          Delete
+                        </button>
+                      )}
                       </div>
                     </td>
                   )}
