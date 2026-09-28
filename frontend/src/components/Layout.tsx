@@ -4,8 +4,10 @@ import {
   Bell, ClipboardList, LayoutDashboard, Menu, Package, Receipt,
   ShieldCheck, UserCog, Wallet, X, LogOut, Settings, Search,
   ChevronRight, FileText, Tag, ArrowRight, Sun, Moon, Clock,
+  Sparkles, Code2, Check, Copy, Heart,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import { useToast } from '../context/ToastContext'
 import { api } from '../lib/api'
 import SaleInvoiceModal from './SaleInvoiceModal'
 import type { Sale, NormalizedProduct } from '../types'
@@ -48,6 +50,179 @@ function getGreeting(name: string) {
   const g = h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'
   return `${g}, ${name.split(' ')[0]}`
 }
+
+// ── Interactive Developer Attribution Badge ────────────────────────────────
+function DeveloperCreditBadge() {
+  const [isOpen, setIsOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [liked, setLiked] = useState(false)
+  const popoverRef = useRef<HTMLDivElement>(null)
+  const { toast } = useToast()
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        setIsOpen(false)
+      }
+    }
+    if (isOpen) document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [isOpen])
+
+  const copyCredit = () => {
+    void navigator.clipboard.writeText('Smart Boutique System — Developed by Mr. Esron')
+    setCopied(true)
+    toast.success('Attribution Copied', 'Developer credits copied to clipboard!')
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleKudos = () => {
+    setLiked(true)
+    toast.success('Kudos Sent! 🎉', 'Thank you for supporting Mr. Esron and SBS!')
+    setTimeout(() => setLiked(false), 2500)
+  }
+
+  return (
+    <div style={{ position: 'relative' }} ref={popoverRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="developer-chip-btn"
+        title="Click to view Developer Information"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '0.45rem',
+          padding: '0.3rem 0.8rem',
+          borderRadius: '9999px',
+          background: 'linear-gradient(135deg, rgba(35,65,95,0.08) 0%, rgba(217,145,46,0.15) 100%)',
+          border: '1px solid rgba(217,145,46,0.38)',
+          color: 'var(--text-main)',
+          fontSize: '0.78rem',
+          fontWeight: 700,
+          cursor: 'pointer',
+          transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+          boxShadow: isOpen ? '0 0 0 3px rgba(217,145,46,0.25)' : '0 2px 6px rgba(0,0,0,0.04)',
+        }}
+      >
+        <span style={{
+          width: 7,
+          height: 7,
+          borderRadius: '50%',
+          background: '#10b981',
+          boxShadow: '0 0 6px #10b981',
+          display: 'inline-block',
+        }} />
+        <Code2 size={13} style={{ color: 'var(--accent)' }} />
+        <span>Developed by <strong style={{ color: 'var(--accent)', fontWeight: 800 }}>Mr. Esron</strong></span>
+        <Sparkles size={12} style={{ color: 'var(--accent)' }} />
+      </button>
+
+      {isOpen && (
+        <div
+          className="panel-card animate-fade-in"
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 8px)',
+            right: 0,
+            width: '290px',
+            zIndex: 70,
+            padding: '1.25rem',
+            boxShadow: 'var(--shadow-lg)',
+            borderRadius: '16px',
+            border: '1px solid var(--border)',
+            background: 'var(--bg-card)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.85rem' }}>
+            <div style={{
+              width: '42px',
+              height: '42px',
+              borderRadius: '12px',
+              background: 'linear-gradient(135deg, var(--primary) 0%, #1a5276 100%)',
+              color: 'white',
+              display: 'grid',
+              placeItems: 'center',
+              fontWeight: 950,
+              fontSize: '1.2rem',
+              boxShadow: '0 4px 12px rgba(35,65,95,0.3)',
+              flexShrink: 0,
+            }}>
+              E
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                <p style={{ margin: 0, fontWeight: 800, fontSize: '0.98rem', color: 'var(--text-main)' }}>Mr. Esron</p>
+                <Sparkles size={13} style={{ color: 'var(--accent)' }} />
+              </div>
+              <p className="muted" style={{ margin: 0, fontSize: '0.74rem' }}>Lead Systems Architect</p>
+            </div>
+          </div>
+
+          <div style={{
+            background: 'var(--bg-main)',
+            borderRadius: '10px',
+            padding: '0.65rem 0.8rem',
+            fontSize: '0.75rem',
+            marginBottom: '0.85rem',
+            border: '1px solid var(--border)',
+          }}>
+            <p style={{ margin: 0, fontWeight: 700, color: 'var(--text-main)' }}>Smart Boutique System</p>
+            <p className="muted" style={{ margin: '0.15rem 0 0 0' }}>Engineered with reactive design, POS speed & cloud database sync</p>
+            <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+              <span className="badge badge-info" style={{ fontSize: '0.65rem', padding: '0.15rem 0.45rem' }}>v2.6 Enterprise</span>
+              <span className="badge badge-success" style={{ fontSize: '0.65rem', padding: '0.15rem 0.45rem' }}>Active & Maintained</span>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button
+              type="button"
+              onClick={copyCredit}
+              className="ghost-button"
+              style={{
+                flex: 1,
+                fontSize: '0.75rem',
+                fontWeight: 700,
+                padding: '0.45rem',
+                borderRadius: '8px',
+                border: '1px solid var(--border)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.35rem',
+              }}
+            >
+              {copied ? <Check size={13} style={{ color: '#10b981' }} /> : <Copy size={13} />}
+              {copied ? 'Copied!' : 'Copy Credit'}
+            </button>
+            <button
+              type="button"
+              onClick={handleKudos}
+              className="ghost-button"
+              style={{
+                fontSize: '0.75rem',
+                fontWeight: 700,
+                padding: '0.45rem 0.65rem',
+                borderRadius: '8px',
+                border: '1px solid rgba(239,68,68,0.3)',
+                color: '#ef4444',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.35rem',
+              }}
+            >
+              <Heart size={13} fill={liked ? '#ef4444' : 'none'} />
+              {liked ? 'Sent!' : 'Kudos'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 
 // ── Main Layout ────────────────────────────────────────────────────────────
 export default function Layout({ children }: { children: ReactNode }) {
@@ -294,8 +469,10 @@ export default function Layout({ children }: { children: ReactNode }) {
             </p>
           </div>
 
-          <div className="topbar-actions">
-            <LiveClock />
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.65rem' }}>
+            <DeveloperCreditBadge />
+            <div className="topbar-actions">
+              <LiveClock />
 
             {/* Global Search */}
             <div className="global-search-container" ref={searchRef}>
@@ -461,7 +638,8 @@ export default function Layout({ children }: { children: ReactNode }) {
               <LogOut size={16} /> Sign out
             </button>
           </div>
-        </header>
+        </div>
+      </header>
 
         {children}
       </main>
