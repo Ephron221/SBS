@@ -110,16 +110,16 @@ export function registerProductRoutes(app, _store) {
             const existing = await db.product.findUnique({ where: { id } });
             if (!existing)
                 return res.status(404).json({ success: false, message: 'Product not found.' });
-            // Check if product was already sold in any transactions
-            const salesCount = await db.saleItem.count({ where: { productId: id } });
-            if (salesCount > 0) {
-                return res.status(400).json({
-                    success: false,
-                    message: `Cannot delete "${existing.name}" because it is part of ${salesCount} existing sale transaction(s). Please edit and set status to "Inactive" to hide it instead.`
-                });
+            // Clean up sale items that reference this product
+            await db.saleItem.deleteMany({ where: { productId: id } });
+            // Clean up any sales that are now empty
+            const emptySales = await db.sale.findMany({ where: { items: { none: {} } } });
+            if (emptySales.length > 0) {
+                await db.sale.deleteMany({ where: { id: { in: emptySales.map(s => s.id) } } });
             }
             // Clean up stock adjustments recorded for this product
             await db.stockHistory.deleteMany({ where: { productId: id } });
+            // Delete product
             await db.product.delete({ where: { id } });
             await db.auditLog.create({
                 data: {
