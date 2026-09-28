@@ -67,37 +67,6 @@ function exportExcel(data: ReportSummary, from: string, to: string) {
   XLSX.writeFile(wb, `SBS_Report_${from}_${to}.xlsx`)
 }
 
-function exportCSV(data: ReportSummary, from: string, to: string) {
-  const lines: string[] = [
-    'Smart Boutique System — Sales Report',
-    `Period: ${from} to ${to}`,
-    '',
-    'SUMMARY',
-    `Gross Revenue,RWF ${data.revenue}`,
-    `Total Expenses,RWF ${data.expenseTotal}`,
-    `Net Profit,RWF ${data.netProfit}`,
-    `Total Sales,${data.totalSales}`,
-    '',
-    'TOP PRODUCTS',
-    'Product,Units Sold,Revenue (RWF)',
-    ...(data.topProducts ?? []).map(p => `${p.name},${p.qty},${p.revenue}`),
-    '',
-    'TRANSACTION LOG',
-    'Invoice,Customer,Payment Method,Channel,Amount (RWF),Date',
-    ...(data.sales ?? []).map(s =>
-      `${s.invoiceNumber},"${s.customerName ?? 'Walk-in'}",${s.paymentMethod},${s.salesChannel ?? 'In-Store'},${s.totalAmount},${new Date(s.createdAt).toLocaleDateString()}`
-    ),
-  ]
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `SBS_Report_${from}_${to}.csv`
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
-
 export default function ReportsPage() {
   const { toast } = useToast()
   const today = new Date()

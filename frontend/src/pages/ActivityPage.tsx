@@ -58,7 +58,7 @@ export default function ActivityPage() {
 
   // ── Delete single notification ──────────────────────────────────
   const handleDeleteNotification = async (id: string) => {
-    const ok = await confirm('Delete this notification?', 'This action cannot be undone.')
+    const ok = await confirm({ title: 'Delete this notification?', message: 'This action cannot be undone.', danger: true })
     if (!ok) return
     setDeletingId(id)
     try {
@@ -74,7 +74,7 @@ export default function ActivityPage() {
 
   // ── Clear ALL notifications ─────────────────────────────────────
   const handleClearAllNotifications = async () => {
-    const ok = await confirm('Clear ALL notifications?', 'This will permanently delete every notification in the system.')
+    const ok = await confirm({ title: 'Clear ALL notifications?', message: 'This will permanently delete every notification in the system.', danger: true })
     if (!ok) return
     setClearingNotifs(true)
     try {
@@ -90,7 +90,7 @@ export default function ActivityPage() {
 
   // ── Delete single audit log ─────────────────────────────────────
   const handleDeleteLog = async (id: string) => {
-    const ok = await confirm('Delete this audit log entry?', 'This action cannot be undone.')
+    const ok = await confirm({ title: 'Delete this audit log entry?', message: 'This action cannot be undone.', danger: true })
     if (!ok) return
     setDeletingId(id)
     try {
@@ -106,7 +106,7 @@ export default function ActivityPage() {
 
   // ── Clear ALL audit logs ────────────────────────────────────────
   const handleClearAllLogs = async () => {
-    const ok = await confirm('Clear ALL audit logs?', 'This will permanently erase the entire audit trail. This cannot be undone.')
+    const ok = await confirm({ title: 'Clear ALL audit logs?', message: 'This will permanently erase the entire audit trail. This cannot be undone.', danger: true })
     if (!ok) return
     setClearingLogs(true)
     try {
