@@ -5,7 +5,7 @@
   "type": "module",
   "main": "dist/server.js",
   "scripts": {
-    "dev": "tsx src/server.ts",
+    "dev": "tsx watch src/server.ts",
     "build": "prisma generate --schema src/prisma/schema.prisma && tsc -p tsconfig.json",
     "vercel-build": "prisma generate --schema src/prisma/schema.prisma && tsc -p tsconfig.json",
     "db:generate": "prisma generate --schema src/prisma/schema.prisma",
