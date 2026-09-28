@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react'
 import {
   BadgeCheck, Boxes, CircleDollarSign, Wallet,
   PieChart, Plus, Receipt, Loader2, Calendar,
-  X, Tag, FileText,
+  X, Tag, FileText, Pencil, Trash2, TrendingUp,
+  ArrowUpRight,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
+import { useConfirm } from '../context/ConfirmContext'
 import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts'
 import { api } from '../lib/api'
 import type { Expense } from '../types'
@@ -13,10 +15,13 @@ import type { Expense } from '../types'
 const EXPENSE_CATEGORIES = ['Rent', 'Electricity', 'Water', 'Salaries', 'Marketing', 'Transport', 'Maintenance', 'Supplies', 'Other']
 
 export default function FinancePage() {
-  const { finance, refreshAll, isManager } = useAuth()
+  const { finance, refreshAll, isManager, isAdmin, products } = useAuth()
   const { toast } = useToast()
+  const { confirm } = useConfirm()
   const [showExpenseModal, setShowExpenseModal] = useState(false)
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
   const [expenses, setExpenses] = useState<Expense[]>([])
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const [form, setForm] = useState({
     category: 'Rent',
     amount: '',
@@ -32,9 +37,32 @@ export default function FinancePage() {
     } catch { /* non-critical */ }
   }
 
-  useEffect(() => { fetchExpenses() }, [])
+  useEffect(() => { void fetchExpenses() }, [])
 
-  const handleAddExpense = async (e: React.FormEvent) => {
+  const handleOpenAdd = () => {
+    setEditingExpense(null)
+    setForm({
+      category: 'Rent',
+      amount: '',
+      note: '',
+      date: new Date().toISOString().split('T')[0],
+    })
+    setShowExpenseModal(true)
+  }
+
+  const handleOpenEdit = (exp: Expense) => {
+    setEditingExpense(exp)
+    const formattedDate = exp.date ? new Date(exp.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]
+    setForm({
+      category: exp.category,
+      amount: String(exp.amount),
+      note: exp.note || '',
+      date: formattedDate,
+    })
+    setShowExpenseModal(true)
+  }
+
+  const handleSaveExpense = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!form.amount || Number(form.amount) <= 0) {
       toast.warning('Invalid Amount', 'Please enter a valid expense amount.')
@@ -42,41 +70,82 @@ export default function FinancePage() {
     }
     setSaving(true)
     try {
-      await api.post('/api/finance/expenses', form)
+      if (editingExpense) {
+        await api.patch(`/api/finance/expenses/${editingExpense.id}`, {
+          category: form.category,
+          amount: Number(form.amount),
+          note: form.note,
+          date: form.date,
+        })
+        toast.success('Expense Updated', `${form.category} expense updated successfully.`)
+      } else {
+        await api.post('/api/finance/expenses', form)
+        toast.success('Expense Recorded', `${form.category} expense of RWF ${Number(form.amount).toLocaleString()} saved.`)
+      }
       setShowExpenseModal(false)
+      setEditingExpense(null)
       setForm({ category: 'Rent', amount: '', note: '', date: new Date().toISOString().split('T')[0] })
       await Promise.all([fetchExpenses(), refreshAll()])
-      toast.success('Expense Recorded', `${form.category} expense of RWF ${Number(form.amount).toLocaleString()} saved.`)
     } catch {
-      toast.error('Save Failed', 'Could not record the expense. Please try again.')
+      toast.error('Save Failed', 'Could not save the expense. Please try again.')
     } finally {
       setSaving(false)
     }
   }
 
-  // ── Derived Trend (current period vs prior data) ───────────────────────
+  const handleDeleteExpense = async (exp: Expense) => {
+    const ok = await confirm({
+      title: 'Delete Expense?',
+      message: `Are you sure you want to delete this ${exp.category} expense of RWF ${Number(exp.amount).toLocaleString()}? This will update your financial totals.`,
+      danger: true,
+      confirmLabel: 'Delete Expense',
+    })
+    if (!ok) return
+
+    setDeletingId(exp.id)
+    try {
+      await api.delete(`/api/finance/expenses/${exp.id}`)
+      toast.success('Expense Deleted', 'The expense record was removed.')
+      await Promise.all([fetchExpenses(), refreshAll()])
+    } catch {
+      toast.error('Delete Failed', 'Could not delete the expense. Please try again.')
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  // ── Dynamic Financial Figures ──────────────────────────────────────────
   const totalRevenue = finance?.revenue ?? 0
   const totalExpenses = finance?.expenses ?? 0
-  const netProfit = finance?.netProfit ?? 0
-  const stockValue = finance?.stockValue ?? 0
+  const netProfit = finance?.netProfit ?? (totalRevenue - totalExpenses)
+
+  // Real-time dynamic Inventory & Profit calculations from live products & backend
+  const stockValue = finance?.stockValue ?? products.reduce((s, p) => s + (p.buyingPrice || 0) * (p.currentQuantity || 0), 0)
+  const retailStockValue = finance?.retailStockValue ?? products.reduce((s, p) => s + (p.sellingPrice || 0) * (p.currentQuantity || 0), 0)
+  const potentialProfit = finance?.potentialProfit ?? (retailStockValue - stockValue)
+
   const margin = totalRevenue > 0 ? ((netProfit / totalRevenue) * 100).toFixed(1) : '0'
+  const potentialMargin = retailStockValue > 0 ? ((potentialProfit / retailStockValue) * 100).toFixed(1) : '0'
 
   const pieData = [
-    { name: 'Inventory Value', value: stockValue,    color: '#3b82f6' },
-    { name: 'Revenue',         value: totalRevenue,  color: '#10b981' },
-    { name: 'Expenses',        value: totalExpenses, color: '#ef4444' },
+    { name: 'Inventory (Cost)',    value: stockValue,       color: '#3b82f6' },
+    { name: 'Inventory (Retail)',  value: retailStockValue, color: '#0ea5e9' },
+    { name: 'Revenue',             value: totalRevenue,     color: '#10b981' },
+    { name: 'Expenses',            value: totalExpenses,    color: '#ef4444' },
   ].filter(d => d.value > 0)
 
   const cards = [
-    { title: 'Total Revenue',    value: totalRevenue,  icon: CircleDollarSign, color: '#10b981', bg: '#d1fae5', note: 'Gross sales' },
-    { title: 'Total Expenses',   value: totalExpenses, icon: Wallet,           color: '#ef4444', bg: '#fee2e2', note: 'Recorded outflows' },
-    { title: 'Net Profit',       value: netProfit,     icon: BadgeCheck,       color: '#8b5cf6', bg: '#ede9fe', note: `${margin}% margin` },
-    { title: 'Inventory Value',  value: stockValue,    icon: Boxes,            color: '#3b82f6', bg: '#dbeafe', note: 'At buying price' },
+    { title: 'Total Revenue',             value: totalRevenue,     icon: CircleDollarSign, color: '#10b981', bg: '#d1fae5', note: 'Gross sales' },
+    { title: 'Total Expenses',            value: totalExpenses,    icon: Wallet,           color: '#ef4444', bg: '#fee2e2', note: 'Recorded outflows' },
+    { title: 'Net Profit',                value: netProfit,        icon: BadgeCheck,       color: '#8b5cf6', bg: '#ede9fe', note: `${margin}% margin` },
+    { title: 'Inventory (Buying Price)',  value: stockValue,       icon: Boxes,            color: '#3b82f6', bg: '#dbeafe', note: 'At buying price' },
+    { title: 'Inventory (Selling Price)', value: retailStockValue, icon: TrendingUp,       color: '#0ea5e9', bg: '#e0f2fe', note: 'At selling price' },
+    { title: 'Profit Value',              value: potentialProfit,  icon: ArrowUpRight,     color: '#059669', bg: '#d1fae5', note: `${potentialMargin}% on unsold stock` },
   ]
 
   return (
     <section className="content-stack animate-fade-in">
-      {/* ── Add Expense Modal ────────────────────────────────────────────── */}
+      {/* ── Add / Edit Expense Modal ────────────────────────────────────── */}
       {showExpenseModal && (
         <div className="modal-overlay animate-fade-in" style={{ zIndex: 100 }}>
           <div className="modal-card" style={{ maxWidth: 480 }}>
@@ -86,8 +155,12 @@ export default function FinancePage() {
                   <Receipt size={18} />
                 </div>
                 <div>
-                  <h3 style={{ fontSize: '1.15rem', fontWeight: 800 }}>Record Expense</h3>
-                  <p className="muted" style={{ fontSize: '0.8rem' }}>Log a business outflow</p>
+                  <h3 style={{ fontSize: '1.15rem', fontWeight: 800 }}>
+                    {editingExpense ? 'Edit Expense' : 'Record Expense'}
+                  </h3>
+                  <p className="muted" style={{ fontSize: '0.8rem' }}>
+                    {editingExpense ? 'Update expense details' : 'Log a business outflow'}
+                  </p>
                 </div>
               </div>
               <button className="ghost-button icon-btn" onClick={() => setShowExpenseModal(false)}>
@@ -95,7 +168,7 @@ export default function FinancePage() {
               </button>
             </div>
 
-            <form onSubmit={handleAddExpense} className="form-grid">
+            <form onSubmit={handleSaveExpense} className="form-grid">
               <div className="field-group">
                 <label><Tag size={13} /> Category</label>
                 <select className="input-field" value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>
@@ -141,12 +214,13 @@ export default function FinancePage() {
                   Cancel
                 </button>
                 <button
+                  type="submit"
                   className="primary-button"
                   disabled={saving}
                   style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', padding: '0.75rem 2rem', background: 'var(--primary)', color: 'white' }}
                 >
-                  {saving ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />}
-                  Save Expense
+                  {saving ? <Loader2 className="animate-spin" size={16} /> : editingExpense ? <Pencil size={16} /> : <Plus size={16} />}
+                  {editingExpense ? 'Update Expense' : 'Save Expense'}
                 </button>
               </div>
             </form>
@@ -155,16 +229,16 @@ export default function FinancePage() {
       )}
 
       {/* ── Header ──────────────────────────────────────────────────────── */}
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
           <h1 style={{ fontSize: '1.6rem', fontWeight: 900, letterSpacing: '-0.02em' }}>Financial Performance</h1>
           <p className="muted" style={{ marginTop: '0.25rem' }}>Real-time tracking of revenue, costs, and inventory assets</p>
         </div>
-        {isManager && (
+        {(isManager || isAdmin) && (
           <button
             className="primary-button"
             style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', padding: '0.8rem 1.5rem', background: 'var(--primary)', color: 'white', boxShadow: '0 8px 20px rgba(35,65,95,0.25)' }}
-            onClick={() => setShowExpenseModal(true)}
+            onClick={handleOpenAdd}
           >
             <Plus size={18} /> Record Expense
           </button>
@@ -178,9 +252,11 @@ export default function FinancePage() {
             <div className="stat-icon" style={{ background: card.bg, color: card.color }}>
               <card.icon size={22} />
             </div>
-            <div style={{ flex: 1 }}>
-              <p className="muted" style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{card.title}</p>
-              <h3 style={{ fontSize: '1.45rem', fontWeight: 900, margin: '0.15rem 0', letterSpacing: '-0.02em' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p className="muted" style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {card.title}
+              </p>
+              <h3 style={{ fontSize: '1.45rem', fontWeight: 900, margin: '0.15rem 0', letterSpacing: '-0.02em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 RWF {card.value.toLocaleString()}
               </h3>
               <p style={{ fontSize: '0.72rem', color: 'var(--text-subtle)', fontWeight: 500 }}>{card.note}</p>
@@ -191,7 +267,7 @@ export default function FinancePage() {
 
       {/* ── Charts + Expenses ────────────────────────────────────────────── */}
       <div className="panel-grid">
-        {/* Pie Chart */}
+        {/* Capital Distribution */}
         <div className="panel-card">
           <div className="panel-head">
             <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontWeight: 800 }}>
@@ -220,9 +296,9 @@ export default function FinancePage() {
             </div>
           )}
 
-          {/* Summary rows */}
+          {/* Detailed Breakdown */}
           <div className="list-stack" style={{ marginTop: '1rem' }}>
-            {cards.slice(0, 3).map(c => (
+            {cards.map(c => (
               <div key={c.title} className="list-item" style={{ padding: '0.65rem 0.75rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                   <div style={{ width: 10, height: 10, borderRadius: '50%', background: c.color }} />
@@ -236,7 +312,7 @@ export default function FinancePage() {
           </div>
         </div>
 
-        {/* Recent Expenses */}
+        {/* Recent Expenses (CRUD enabled) */}
         <div className="panel-card">
           <div className="panel-head">
             <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontWeight: 800 }}>
@@ -248,32 +324,61 @@ export default function FinancePage() {
             <div className="empty-state" style={{ padding: '2.5rem 0' }}>
               <Receipt size={36} />
               <p>No expenses recorded</p>
-              {isManager && (
-                <button className="ghost-button" style={{ fontSize: '0.82rem', marginTop: '0.5rem' }} onClick={() => setShowExpenseModal(true)}>
+              {(isManager || isAdmin) && (
+                <button className="ghost-button" style={{ fontSize: '0.82rem', marginTop: '0.5rem' }} onClick={handleOpenAdd}>
                   Record first expense
                 </button>
               )}
             </div>
           ) : (
-            <div className="list-stack">
-              {expenses.slice(0, 7).map((exp) => (
-                <div key={exp.id} className="list-item" style={{ padding: '0.85rem 1rem' }}>
-                  <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-                    <div className="stat-icon" style={{ width: 36, height: 36, background: '#fef2f2', color: '#ef4444', borderRadius: 10 }}>
+            <div className="list-stack" style={{ maxHeight: 520, overflowY: 'auto' }}>
+              {expenses.map((exp) => (
+                <div key={exp.id} className="list-item" style={{ padding: '0.85rem 1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
+                  <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flex: 1, minWidth: 0 }}>
+                    <div className="stat-icon" style={{ width: 36, height: 36, background: '#fef2f2', color: '#ef4444', borderRadius: 10, flexShrink: 0 }}>
                       <Receipt size={15} />
                     </div>
-                    <div>
-                      <p style={{ fontWeight: 700, fontSize: '0.9rem' }}>{exp.category}</p>
-                      <p className="muted" style={{ fontSize: '0.72rem' }}>{exp.note || 'No description'}</p>
+                    <div style={{ minWidth: 0 }}>
+                      <p style={{ fontWeight: 700, fontSize: '0.9rem', margin: 0 }}>{exp.category}</p>
+                      <p className="muted" style={{ fontSize: '0.72rem', margin: '0.1rem 0 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {exp.note || 'No description'}
+                      </p>
                     </div>
                   </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <p style={{ fontWeight: 800, color: '#ef4444', fontSize: '0.95rem' }}>
-                      −RWF {exp.amount.toLocaleString()}
-                    </p>
-                    <p className="muted" style={{ fontSize: '0.7rem' }}>
-                      {new Date(exp.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}
-                    </p>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', flexShrink: 0 }}>
+                    <div style={{ textAlign: 'right' }}>
+                      <p style={{ fontWeight: 800, color: '#ef4444', fontSize: '0.95rem', margin: 0 }}>
+                        −RWF {exp.amount.toLocaleString()}
+                      </p>
+                      <p className="muted" style={{ fontSize: '0.7rem', margin: '0.1rem 0 0 0' }}>
+                        {new Date(exp.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}
+                      </p>
+                    </div>
+
+                    {(isManager || isAdmin) && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                        <button
+                          type="button"
+                          className="ghost-button icon-btn"
+                          onClick={() => handleOpenEdit(exp)}
+                          title="Edit expense"
+                          style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid var(--border)', display: 'grid', placeItems: 'center' }}
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          className="ghost-button icon-btn"
+                          onClick={() => handleDeleteExpense(exp)}
+                          title="Delete expense"
+                          disabled={deletingId === exp.id}
+                          style={{ width: 32, height: 32, borderRadius: 8, color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)', display: 'grid', placeItems: 'center' }}
+                        >
+                          {deletingId === exp.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}

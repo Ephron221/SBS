@@ -54,7 +54,14 @@ export interface Expense {
   date: string;
   createdById?: string;
 }
-export interface FinanceSummary { revenue: number; expenses: number; netProfit: number; stockValue: number }
+export interface FinanceSummary {
+  revenue: number;
+  expenses: number;
+  netProfit: number;
+  stockValue: number;
+  retailStockValue?: number;
+  potentialProfit?: number;
+}
 export interface ReportSaleItem { id: string; quantity: number; lineTotal: number; product: { name: string } }
 export interface ReportSale { id: string; invoiceNumber: string; totalAmount: number; discountAmount?: number; createdAt: string; paymentMethod: string; customerName: string; salesChannel?: string; seller?: { name: string }; items: ReportSaleItem[] }
 export interface ReportExpense { id: string; category: string; amount: number; note: string; date: string }
