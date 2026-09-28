@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { Bell, ShieldCheck, History, AlertCircle, Clock, Search, CheckCheck } from 'lucide-react'
+import { Bell, ShieldCheck, History, AlertCircle, Clock, Search, CheckCheck, Trash2, Loader2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { api } from '../lib/api'
 import { useToast } from '../context/ToastContext'
+import { useConfirm } from '../context/ConfirmContext'
 
 function timeAgo(dateString?: string) {
   if (!dateString) return 'Just now'
@@ -18,11 +19,15 @@ function timeAgo(dateString?: string) {
 }
 
 export default function ActivityPage() {
-  const { notifications, auditLogs, refreshAll } = useAuth()
+  const { notifications, auditLogs, isAdmin, refreshAll } = useAuth()
   const { toast } = useToast()
+  const { confirm } = useConfirm()
   const [query, setQuery] = useState('')
   const [activityView, setActivityView] = useState<'all' | 'notifications' | 'audit'>('all')
   const [marking, setMarking] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [clearingNotifs, setClearingNotifs] = useState(false)
+  const [clearingLogs, setClearingLogs] = useState(false)
 
   const normalizedQuery = query.toLowerCase()
   const visibleNotifications = notifications.filter((n) =>
@@ -44,11 +49,74 @@ export default function ActivityPage() {
       await refreshAll()
       toast.success('Notifications Cleared', 'All notifications marked as read.')
     } catch {
-      // Fallback if read-all endpoint differs
       toast.info('Notifications Updated', 'View refreshed.')
       await refreshAll()
     } finally {
       setMarking(false)
+    }
+  }
+
+  // ── Delete single notification ──────────────────────────────────
+  const handleDeleteNotification = async (id: string) => {
+    const ok = await confirm('Delete this notification?', 'This action cannot be undone.')
+    if (!ok) return
+    setDeletingId(id)
+    try {
+      await api.delete(`/api/notifications/${id}`)
+      await refreshAll()
+      toast.success('Deleted', 'Notification removed.')
+    } catch {
+      toast.error('Error', 'Could not delete notification.')
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  // ── Clear ALL notifications ─────────────────────────────────────
+  const handleClearAllNotifications = async () => {
+    const ok = await confirm('Clear ALL notifications?', 'This will permanently delete every notification in the system.')
+    if (!ok) return
+    setClearingNotifs(true)
+    try {
+      await api.delete('/api/notifications')
+      await refreshAll()
+      toast.success('Cleared', 'All notifications deleted.')
+    } catch {
+      toast.error('Error', 'Could not clear notifications.')
+    } finally {
+      setClearingNotifs(false)
+    }
+  }
+
+  // ── Delete single audit log ─────────────────────────────────────
+  const handleDeleteLog = async (id: string) => {
+    const ok = await confirm('Delete this audit log entry?', 'This action cannot be undone.')
+    if (!ok) return
+    setDeletingId(id)
+    try {
+      await api.delete(`/api/audit-logs/${id}`)
+      await refreshAll()
+      toast.success('Deleted', 'Audit log entry removed.')
+    } catch {
+      toast.error('Error', 'Could not delete log entry.')
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  // ── Clear ALL audit logs ────────────────────────────────────────
+  const handleClearAllLogs = async () => {
+    const ok = await confirm('Clear ALL audit logs?', 'This will permanently erase the entire audit trail. This cannot be undone.')
+    if (!ok) return
+    setClearingLogs(true)
+    try {
+      await api.delete('/api/audit-logs')
+      await refreshAll()
+      toast.success('Cleared', 'Audit trail wiped.')
+    } catch {
+      toast.error('Error', 'Could not clear audit logs.')
+    } finally {
+      setClearingLogs(false)
     }
   }
 
@@ -100,6 +168,7 @@ export default function ActivityPage() {
       </div>
 
       <div className="panel-grid">
+        {/* ── Notifications Panel ─────────────────────────────── */}
         {(activityView === 'all' || activityView === 'notifications') && (
           <div className="panel-card">
             <div className="panel-head">
@@ -109,7 +178,21 @@ export default function ActivityPage() {
                 </div>
                 <h3 style={{ fontSize: '1.1rem', fontWeight: 800 }}>Notifications</h3>
               </div>
-              <span className="badge badge-success" style={{ borderRadius: '8px' }}>{visibleNotifications.length} Total</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <span className="badge badge-success" style={{ borderRadius: '8px' }}>{visibleNotifications.length} Total</span>
+                {isAdmin && visibleNotifications.length > 0 && (
+                  <button
+                    className="ghost-button"
+                    onClick={handleClearAllNotifications}
+                    disabled={clearingNotifs}
+                    title="Clear all notifications"
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.35rem 0.75rem', fontSize: '0.78rem', fontWeight: 700, color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8 }}
+                  >
+                    {clearingNotifs ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                    Clear All
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="list-stack">
@@ -124,7 +207,8 @@ export default function ActivityPage() {
                     gap: '1rem',
                     border: '1px solid var(--border)',
                     background: 'var(--bg-card)',
-                    padding: '1rem'
+                    padding: '1rem',
+                    alignItems: 'flex-start',
                   }}>
                     <div className="stat-icon" style={{ width: '38px', height: '38px', background: 'rgba(217, 119, 6, 0.12)', color: '#d97706', flexShrink: 0 }}>
                       <AlertCircle size={18} />
@@ -133,9 +217,22 @@ export default function ActivityPage() {
                       <p style={{ fontWeight: 700, margin: '0 0 0.15rem 0', color: 'var(--text-main)', fontSize: '0.92rem' }}>{n.title}</p>
                       <p className="muted" style={{ fontSize: '0.82rem', margin: 0, lineHeight: 1.4 }}>{n.message}</p>
                     </div>
-                    <div className="muted" style={{ fontSize: '0.75rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                      <Clock size={12} style={{ verticalAlign: 'middle', marginRight: '0.25rem' }} />
-                      {timeAgo(n.createdAt)}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexShrink: 0 }}>
+                      <span className="muted" style={{ fontSize: '0.75rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                        <Clock size={12} style={{ verticalAlign: 'middle', marginRight: '0.25rem' }} />
+                        {timeAgo(n.createdAt)}
+                      </span>
+                      {isAdmin && (
+                        <button
+                          className="ghost-button icon-btn"
+                          onClick={() => handleDeleteNotification(n.id)}
+                          disabled={deletingId === n.id}
+                          title="Delete notification"
+                          style={{ width: 30, height: 30, color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, flexShrink: 0 }}
+                        >
+                          {deletingId === n.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))
@@ -144,6 +241,7 @@ export default function ActivityPage() {
           </div>
         )}
 
+        {/* ── Audit Logs Panel ────────────────────────────────── */}
         {(activityView === 'all' || activityView === 'audit') && (
           <div className="panel-card">
             <div className="panel-head">
@@ -153,7 +251,21 @@ export default function ActivityPage() {
                 </div>
                 <h3 style={{ fontSize: '1.1rem', fontWeight: 800 }}>Administrative Logs</h3>
               </div>
-              <span className="badge badge-info" style={{ borderRadius: '8px' }}>{visibleAuditLogs.length} Events</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <span className="badge badge-info" style={{ borderRadius: '8px' }}>{visibleAuditLogs.length} Events</span>
+                {isAdmin && visibleAuditLogs.length > 0 && (
+                  <button
+                    className="ghost-button"
+                    onClick={handleClearAllLogs}
+                    disabled={clearingLogs}
+                    title="Clear all audit logs"
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.35rem 0.75rem', fontSize: '0.78rem', fontWeight: 700, color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8 }}
+                  >
+                    {clearingLogs ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                    Clear All
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="list-stack">
@@ -169,7 +281,7 @@ export default function ActivityPage() {
                     gap: '0.9rem',
                     border: '1px solid var(--border)',
                     background: 'var(--bg-card)',
-                    padding: '1rem'
+                    padding: '1rem',
                   }}>
                     <div style={{
                       width: '38px',
@@ -181,7 +293,7 @@ export default function ActivityPage() {
                       placeItems: 'center',
                       flexShrink: 0,
                       fontWeight: 800,
-                      fontSize: '0.95rem'
+                      fontSize: '0.95rem',
                     }}>
                       {(e.user?.name || 'S').charAt(0)}
                     </div>
@@ -197,7 +309,7 @@ export default function ActivityPage() {
                         <span className="badge badge-info" style={{
                           fontSize: '0.65rem',
                           padding: '0.15rem 0.5rem',
-                          fontWeight: 800
+                          fontWeight: 800,
                         }}>
                           {e.action}
                         </span>
@@ -206,6 +318,17 @@ export default function ActivityPage() {
                         </p>
                       </div>
                     </div>
+                    {isAdmin && (
+                      <button
+                        className="ghost-button icon-btn"
+                        onClick={() => handleDeleteLog(e.id)}
+                        disabled={deletingId === e.id}
+                        title="Delete this log entry"
+                        style={{ width: 30, height: 30, color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, flexShrink: 0 }}
+                      >
+                        {deletingId === e.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                      </button>
+                    )}
                   </div>
                 ))
               )}

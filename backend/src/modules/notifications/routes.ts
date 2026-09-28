@@ -1,5 +1,5 @@
 import { Router, type Response } from 'express'
-import { authenticate, type AuthRequest } from '../../middleware/auth.js'
+import { authenticate, restrictTo, type AuthRequest } from '../../middleware/auth.js'
 import { db } from '../../db.js'
 
 export function registerNotificationRoutes(app: any, _store: any) {
@@ -10,6 +10,11 @@ export function registerNotificationRoutes(app: any, _store: any) {
     res.json({ success: true, data: notifications })
   })
 
+  router.patch('/read-all', authenticate(_store), async (req: AuthRequest, res: Response) => {
+    await db.notification.updateMany({ where: { role: req.user!.role, read: false }, data: { read: true } })
+    res.json({ success: true })
+  })
+
   router.patch('/:id/read', authenticate(_store), async (req: AuthRequest, res: Response) => {
     const id = String(req.params.id)
     const notification = await db.notification.update({ where: { id }, data: { read: true } }).catch(() => null)
@@ -17,8 +22,17 @@ export function registerNotificationRoutes(app: any, _store: any) {
     res.json({ success: true, data: notification })
   })
 
-  router.patch('/read-all', authenticate(_store), async (req: AuthRequest, res: Response) => {
-    await db.notification.updateMany({ where: { role: req.user!.role, read: false }, data: { read: true } })
+  // Admin: delete a single notification
+  router.delete('/:id', authenticate(_store), restrictTo('SUPER_ADMIN'), async (req: AuthRequest, res: Response) => {
+    const id = String(req.params.id)
+    const deleted = await db.notification.delete({ where: { id } }).catch(() => null)
+    if (!deleted) return res.status(404).json({ message: 'Notification not found.' })
+    res.json({ success: true })
+  })
+
+  // Admin: delete ALL notifications
+  router.delete('/', authenticate(_store), restrictTo('SUPER_ADMIN'), async (_req: AuthRequest, res: Response) => {
+    await db.notification.deleteMany({})
     res.json({ success: true })
   })
 

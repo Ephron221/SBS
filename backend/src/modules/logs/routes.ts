@@ -10,5 +10,19 @@ export function registerAuditLogRoutes(app: any, _store: any) {
     res.json({ success: true, data: logs })
   })
 
+  // Admin: delete a single audit log entry
+  router.delete('/:id', authenticate(_store), restrictTo('SUPER_ADMIN'), async (req: AuthRequest, res: Response) => {
+    const id = String(req.params.id)
+    const deleted = await db.auditLog.delete({ where: { id } }).catch(() => null)
+    if (!deleted) return res.status(404).json({ message: 'Audit log entry not found.' })
+    res.json({ success: true })
+  })
+
+  // Admin: clear ALL audit logs
+  router.delete('/', authenticate(_store), restrictTo('SUPER_ADMIN'), async (_req: AuthRequest, res: Response) => {
+    await db.auditLog.deleteMany({})
+    res.json({ success: true })
+  })
+
   app.use('/api/audit-logs', router)
 }
