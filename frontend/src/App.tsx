@@ -34,7 +34,7 @@ function AppRoutes() {
           <Route path="/products"  element={<ProductsPage />} />
           <Route path="/sales"     element={<SalesPage />} />
           <Route path="/finance"   element={isManager ? <FinancePage /> : <Navigate to="/dashboard" replace />} />
-          <Route path="/reports"   element={isManager ? <ReportsPage /> : <Navigate to="/dashboard" replace />} />
+          <Route path="/reports"   element={<ReportsPage />} />
           <Route path="/activity"  element={<ActivityPage />} />
           <Route path="/users"     element={isAdmin ? <UsersPage /> : <Navigate to="/dashboard" replace />} />
           <Route path="/settings"  element={isAdmin ? <SettingsPage /> : <Navigate to="/dashboard" replace />} />

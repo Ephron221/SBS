@@ -12,7 +12,60 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
 } from 'recharts'
 
+import * as XLSX from 'xlsx'
+
 const COLORS = ['#23415f', '#d9912e', '#10b981', '#8b5cf6', '#ef4444', '#3b82f6']
+
+function exportExcel(data: ReportSummary, from: string, to: string) {
+  const wb = XLSX.utils.book_new()
+
+  // Summary sheet
+  const summaryRows = [
+    ['Smart Boutique System — Sales Report'],
+    [`Period: ${from} to ${to}`],
+    [],
+    ['Metric', 'Value (RWF)'],
+    ['Gross Revenue', data.revenue],
+    ['Total Expenses', data.expenseTotal],
+    ['Net Profit', data.netProfit],
+    ['Total Discounts', data.totalDiscounts ?? 0],
+    ['Total Transactions', data.totalSales],
+  ]
+  const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows)
+  wsSummary['!cols'] = [{ wch: 30 }, { wch: 20 }]
+  XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary')
+
+  // Best Products sheet
+  const topHeader = [['#', 'Product Name', 'Units Sold', 'Revenue (RWF)', 'Avg Price (RWF)']]
+  const topRows = (data.topProducts ?? []).map((p, i) => [
+    i + 1, p.name, p.qty, p.revenue, p.qty > 0 ? Math.round(p.revenue / p.qty) : 0,
+  ])
+  const wsTop = XLSX.utils.aoa_to_sheet([...topHeader, ...topRows])
+  wsTop['!cols'] = [{ wch: 5 }, { wch: 30 }, { wch: 15 }, { wch: 18 }, { wch: 18 }]
+  XLSX.utils.book_append_sheet(wb, wsTop, 'Best Products')
+
+  // Transactions sheet
+  const txHeader = [['Invoice #', 'Customer', 'Seller', 'Payment', 'Channel', 'Items', 'Amount (RWF)', 'Date']]
+  const txRows = (data.sales ?? []).map(s => [
+    s.invoiceNumber,
+    s.customerName || 'Walk-in',
+    s.seller?.name ?? 'System',
+    s.paymentMethod,
+    s.salesChannel ?? 'In-Store',
+    (s.items ?? []).map((it: { product: { name: string }; quantity: number }) =>
+      `${it.product?.name} x${it.quantity}`).join(', '),
+    s.totalAmount,
+    new Date(s.createdAt).toLocaleDateString(),
+  ])
+  const wsTx = XLSX.utils.aoa_to_sheet([...txHeader, ...txRows])
+  wsTx['!cols'] = [
+    { wch: 16 }, { wch: 22 }, { wch: 18 }, { wch: 14 },
+    { wch: 14 }, { wch: 45 }, { wch: 16 }, { wch: 14 },
+  ]
+  XLSX.utils.book_append_sheet(wb, wsTx, 'Transactions')
+
+  XLSX.writeFile(wb, `SBS_Report_${from}_${to}.xlsx`)
+}
 
 function exportCSV(data: ReportSummary, from: string, to: string) {
   const lines: string[] = [
@@ -44,6 +97,7 @@ function exportCSV(data: ReportSummary, from: string, to: string) {
   URL.revokeObjectURL(url)
 }
 
+
 export default function ReportsPage() {
   const { toast } = useToast()
   const today = new Date()
@@ -68,11 +122,6 @@ export default function ReportsPage() {
 
   useEffect(() => { void fetchReport() }, [])
 
-  const handleExportCSV = () => {
-    if (!data) { toast.warning('No Data', 'Generate a report first before exporting.'); return }
-    exportCSV(data, from, to)
-    toast.success('Export Ready', 'CSV report downloaded successfully.')
-  }
 
   return (
     <section className="content-stack animate-fade-in">
@@ -106,21 +155,27 @@ export default function ReportsPage() {
               {loading ? <Loader2 size={16} className="animate-spin" /> : <Filter size={16} />}
               {loading ? 'Loading…' : 'Generate'}
             </button>
+            {/* Excel download */}
             <button
-              className="ghost-button icon-btn"
-              style={{ height: 44, width: 44, border: '1px solid var(--border)' }}
-              onClick={() => window.print()}
-              title="Print report"
+              className="ghost-button"
+              style={{ height: 44, padding: '0 1.1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', border: '1px solid #217346', fontSize: '0.85rem', fontWeight: 700, color: '#217346' }}
+              onClick={() => {
+                if (!data) { toast.warning('No Data', 'Generate a report first before exporting.'); return }
+                exportExcel(data, from, to)
+                toast.success('Excel Ready', 'Excel report (.xlsx) downloaded.')
+              }}
+              title="Download Excel (.xlsx) — 3 sheets: Summary, Best Products, Transactions"
             >
-              <Printer size={17} />
+              <Download size={16} /> Excel
             </button>
+            {/* PDF via browser print */}
             <button
-              className="ghost-button icon-btn"
-              style={{ height: 44, width: 44, border: '1px solid var(--border)' }}
-              onClick={handleExportCSV}
-              title="Export CSV"
+              className="ghost-button"
+              style={{ height: 44, padding: '0 1.1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', border: '1px solid var(--border)', fontSize: '0.85rem', fontWeight: 700 }}
+              onClick={() => window.print()}
+              title="Print / Save as PDF"
             >
-              <Download size={17} />
+              <Printer size={16} /> PDF
             </button>
           </div>
         </div>
@@ -168,6 +223,46 @@ export default function ReportsPage() {
                 </div>
               ))}
             </div>
+
+            {/* ── Most Purchased / Best Sellers Banner ── */}
+            {(data.topProducts ?? []).length > 0 && (
+              <div className="panel-card" style={{ padding: '1.5rem', marginTop: '1.5rem', background: 'linear-gradient(135deg, var(--primary) 0%, #1a5276 100%)' }}>
+                <div className="panel-head" style={{ marginBottom: '1.25rem' }}>
+                  <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontWeight: 800, color: 'white' }}>
+                    <TrendingUp size={20} /> Most Purchased Products
+                  </h3>
+                  <span style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.6)', fontWeight: 600 }}>
+                    {new Date(from).toLocaleDateString()} – {new Date(to).toLocaleDateString()}
+                  </span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: '0.9rem' }}>
+                  {data.topProducts.slice(0, 6).map((p, i) => (
+                    <div key={p.name} style={{
+                      background: 'rgba(255,255,255,0.1)',
+                      borderRadius: 14,
+                      padding: '1rem',
+                      border: '1px solid rgba(255,255,255,0.15)',
+                      position: 'relative',
+                      overflow: 'hidden',
+                    }}>
+                      <div style={{
+                        position: 'absolute', top: 8, right: 10,
+                        fontSize: '2.2rem', fontWeight: 900, opacity: 0.12, color: 'white', lineHeight: 1,
+                      }}>#{i + 1}</div>
+                      <div style={{
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        width: 28, height: 28, borderRadius: '50%',
+                        background: i === 0 ? '#f59e0b' : i === 1 ? '#9ca3af' : i === 2 ? '#cd7c2f' : 'rgba(255,255,255,0.25)',
+                        color: 'white', fontWeight: 900, fontSize: '0.78rem', marginBottom: '0.6rem',
+                      }}>{i + 1}</div>
+                      <p style={{ fontWeight: 800, color: 'white', fontSize: '0.9rem', marginBottom: '0.2rem' }}>{p.name}</p>
+                      <p style={{ color: 'rgba(255,255,255,0.65)', fontSize: '0.75rem', marginBottom: '0.35rem' }}>{p.qty} units sold</p>
+                      <p style={{ fontWeight: 800, color: '#a7f3d0', fontSize: '0.95rem' }}>RWF {p.revenue.toLocaleString()}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Charts */}
             <div className="panel-grid" style={{ marginTop: '1.5rem' }}>
