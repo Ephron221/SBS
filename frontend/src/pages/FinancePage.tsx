@@ -246,20 +246,20 @@ export default function FinancePage() {
       </header>
 
       {/* ── KPI Cards ───────────────────────────────────────────────────── */}
-      <div className="stats-grid">
+      <div className="finance-stats-grid">
         {cards.map((card) => (
-          <div key={card.title} className="stat-card">
-            <div className="stat-icon" style={{ background: card.bg, color: card.color }}>
+          <div key={card.title} className="stat-card" style={{ minWidth: 0, padding: '1.25rem 1.4rem' }}>
+            <div className="stat-icon" style={{ background: card.bg, color: card.color, flexShrink: 0 }}>
               <card.icon size={22} />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <p className="muted" style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <p className="muted" style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 {card.title}
               </p>
-              <h3 style={{ fontSize: '1.45rem', fontWeight: 900, margin: '0.15rem 0', letterSpacing: '-0.02em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <h3 style={{ fontSize: 'clamp(1.2rem, 1.5vw, 1.55rem)', fontWeight: 900, margin: '0.2rem 0', letterSpacing: '-0.02em', whiteSpace: 'nowrap' }}>
                 RWF {card.value.toLocaleString()}
               </h3>
-              <p style={{ fontSize: '0.72rem', color: 'var(--text-subtle)', fontWeight: 500 }}>{card.note}</p>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-subtle)', fontWeight: 500 }}>{card.note}</p>
             </div>
           </div>
         ))}

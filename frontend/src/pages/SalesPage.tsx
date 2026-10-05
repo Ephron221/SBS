@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { ShoppingBag, History, Search, FileText, ChevronRight, User, Calendar, CreditCard, X } from 'lucide-react'
+import { useMemo, useState, useEffect } from 'react'
+import { ShoppingBag, History, Search, FileText, ChevronRight, ChevronLeft, User, Calendar, CreditCard, X } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import POSCart from '../features/POSCart'
 import SaleInvoiceModal from '../components/SaleInvoiceModal'
@@ -12,15 +12,33 @@ export default function SalesPage() {
   const [search, setSearch] = useState('')
   const [posSearch, setPosSearch] = useState('')
   const [methodFilter, setMethodFilter] = useState('all')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState<number | 'all'>(50)
 
   const paymentMethods = useMemo(() => Array.from(new Set(sales.map((s) => s.paymentMethod).filter(Boolean))), [sales])
-  const filteredSales = sales.filter(s => {
-    const query = search.toLowerCase()
-    const matchesSearch = s.invoiceNumber.toLowerCase().includes(query) || (s.customerName && s.customerName.toLowerCase().includes(query))
-    const matchesMethod = methodFilter === 'all' || s.paymentMethod === methodFilter
-    return matchesSearch && matchesMethod
-  })
-  const filteredTotal = filteredSales.reduce((sum, sale) => sum + sale.totalAmount, 0)
+  const filteredSales = useMemo(() => {
+    return sales.filter(s => {
+      const query = search.toLowerCase()
+      const matchesSearch = s.invoiceNumber.toLowerCase().includes(query) || (s.customerName && s.customerName.toLowerCase().includes(query))
+      const matchesMethod = methodFilter === 'all' || s.paymentMethod === methodFilter
+      return matchesSearch && matchesMethod
+    })
+  }, [sales, search, methodFilter])
+
+  const filteredTotal = useMemo(() => filteredSales.reduce((sum, sale) => sum + sale.totalAmount, 0), [filteredSales])
+  const totalAllSales = useMemo(() => sales.reduce((sum, sale) => sum + sale.totalAmount, 0), [sales])
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [search, methodFilter, pageSize])
+
+  const totalPages = pageSize === 'all' ? 1 : Math.max(1, Math.ceil(filteredSales.length / pageSize))
+  const paginatedSales = useMemo(() => {
+    if (pageSize === 'all') return filteredSales
+    const start = (currentPage - 1) * pageSize
+    return filteredSales.slice(start, start + pageSize)
+  }, [filteredSales, currentPage, pageSize])
 
   return (
     <section className="content-stack animate-fade-in">
@@ -137,14 +155,25 @@ export default function SalesPage() {
         <POSCart products={products as any} onSaleComplete={refreshAll} search={posSearch} setSearch={setPosSearch} />
       ) : (
         <div className="panel-card animate-fade-in">
-          <div className="panel-head">
+          <div className="panel-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
             <div>
               <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <History size={20} /> Transaction Journal
               </h3>
-              <p className="muted" style={{ fontSize: '0.8rem' }}>Total volume: <strong>RWF {filteredTotal.toLocaleString()}</strong></p>
+              <p className="muted" style={{ fontSize: '0.8rem' }}>
+                Total volume: <strong>RWF {filteredTotal.toLocaleString()}</strong>
+                {filteredSales.length !== sales.length && (
+                  <span> (out of RWF {totalAllSales.toLocaleString()} overall)</span>
+                )}
+              </p>
             </div>
-            <span className="badge badge-success" style={{ padding: '0.4rem 0.8rem' }}>{filteredSales.length} Invoices</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <span className="badge badge-success" style={{ padding: '0.4rem 0.8rem', fontSize: '0.82rem', fontWeight: 700 }}>
+                {filteredSales.length === sales.length
+                  ? `${sales.length} Invoices`
+                  : `${filteredSales.length} of ${sales.length} Invoices`}
+              </span>
+            </div>
           </div>
           
           <div className="list-stack">
@@ -154,50 +183,136 @@ export default function SalesPage() {
                 <p className="muted">No transactions found matching your filters.</p>
               </div>
             ) : (
-              <div style={{ display: 'grid', gap: '0.75rem' }}>
-                {filteredSales.map((s) => (
-                  <div className="list-item" key={s.id} onClick={() => setSelectedSale(s)} style={{ 
-                    padding: '1.25rem', 
-                    cursor: 'pointer',
-                    background: 'white',
-                    border: '1px solid var(--border)',
-                    transition: 'all 0.2s ease'
-                  }}>
-                    <div style={{ display: 'flex', gap: '1.25rem', alignItems: 'center', flex: 1.5 }}>
-                      <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#f1f5f9', display: 'grid', placeItems: 'center', color: 'var(--primary)' }}>
-                        <FileText size={22} />
-                      </div>
-                      <div>
-                        <p style={{ fontWeight: 800, margin: 0, fontSize: '1rem' }}>{s.invoiceNumber}</p>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.2rem' }} className="muted">
-                           <User size={12} />
-                           <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>{s.customerName || 'Walk-in Customer'}</span>
+              <>
+                <div style={{ display: 'grid', gap: '0.75rem' }}>
+                  {paginatedSales.map((s) => (
+                    <div className="list-item" key={s.id} onClick={() => setSelectedSale(s)} style={{ 
+                      padding: '1.25rem', 
+                      cursor: 'pointer',
+                      background: 'white',
+                      border: '1px solid var(--border)',
+                      transition: 'all 0.2s ease'
+                    }}>
+                      <div style={{ display: 'flex', gap: '1.25rem', alignItems: 'center', flex: 1.5 }}>
+                        <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#f1f5f9', display: 'grid', placeItems: 'center', color: 'var(--primary)' }}>
+                          <FileText size={22} />
+                        </div>
+                        <div>
+                          <p style={{ fontWeight: 800, margin: 0, fontSize: '1rem' }}>{s.invoiceNumber}</p>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.2rem' }} className="muted">
+                             <User size={12} />
+                             <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>{s.customerName || 'Walk-in Customer'}</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--primary)', fontWeight: 700, fontSize: '0.85rem' }}>
-                        <CreditCard size={14} />
-                        {s.paymentMethod}
+                      
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--primary)', fontWeight: 700, fontSize: '0.85rem' }}>
+                          <CreditCard size={14} />
+                          {s.paymentMethod}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.2rem' }} className="muted">
+                          <Calendar size={12} />
+                          <span style={{ fontSize: '0.75rem' }}>{new Date(s.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                        </div>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.2rem' }} className="muted">
-                        <Calendar size={12} />
-                        <span style={{ fontSize: '0.75rem' }}>{new Date(s.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+
+                      <div style={{ textAlign: 'right', marginRight: '1rem', minWidth: '140px' }}>
+                        <p style={{ fontWeight: 900, fontSize: '1.1rem', color: 'var(--primary)', margin: 0 }}>RWF {s.totalAmount.toLocaleString()}</p>
+                        <span className="badge badge-success" style={{ fontSize: '0.65rem', padding: '0.1rem 0.5rem', marginTop: '0.25rem' }}>Completed</span>
+                      </div>
+
+                      <div style={{ color: 'var(--border)' }}>
+                        <ChevronRight size={20} />
                       </div>
                     </div>
+                  ))}
+                </div>
 
-                    <div style={{ textAlign: 'right', marginRight: '1rem', minWidth: '140px' }}>
-                      <p style={{ fontWeight: 900, fontSize: '1.1rem', color: 'var(--primary)', margin: 0 }}>RWF {s.totalAmount.toLocaleString()}</p>
-                      <span className="badge badge-success" style={{ fontSize: '0.65rem', padding: '0.1rem 0.5rem', marginTop: '0.25rem' }}>Completed</span>
-                    </div>
-
-                    <div style={{ color: 'var(--border)' }}>
-                      <ChevronRight size={20} />
+                {/* Pagination Controls */}
+                <div style={{ 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center', 
+                  flexWrap: 'wrap', 
+                  gap: '1rem', 
+                  marginTop: '1.25rem', 
+                  paddingTop: '1rem', 
+                  borderTop: '1px solid var(--border)' 
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <span className="muted" style={{ fontSize: '0.82rem' }}>
+                      Showing {((currentPage - 1) * (pageSize === 'all' ? filteredSales.length : pageSize)) + 1} - {Math.min(currentPage * (pageSize === 'all' ? filteredSales.length : pageSize), filteredSales.length)} of {filteredSales.length} invoices
+                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginLeft: '0.5rem' }}>
+                      <span className="muted" style={{ fontSize: '0.8rem' }}>Per page:</span>
+                      {[25, 50, 100, 'all' as const].map((size) => (
+                        <button
+                          key={size}
+                          onClick={() => setPageSize(size)}
+                          style={{
+                            padding: '0.2rem 0.55rem',
+                            fontSize: '0.78rem',
+                            fontWeight: pageSize === size ? 700 : 500,
+                            borderRadius: '6px',
+                            border: '1px solid',
+                            borderColor: pageSize === size ? 'var(--primary)' : 'var(--border)',
+                            background: pageSize === size ? 'var(--primary)' : '#fff',
+                            color: pageSize === size ? '#fff' : 'var(--text-muted)',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {size === 'all' ? 'All' : size}
+                        </button>
+                      ))}
                     </div>
                   </div>
-                ))}
-              </div>
+
+                  {pageSize !== 'all' && totalPages > 1 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <button
+                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                        disabled={currentPage === 1}
+                        className="ghost-button"
+                        style={{
+                          padding: '0.35rem 0.7rem',
+                          borderRadius: '8px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.3rem',
+                          fontSize: '0.8rem',
+                          opacity: currentPage === 1 ? 0.4 : 1,
+                          cursor: currentPage === 1 ? 'not-allowed' : 'pointer'
+                        }}
+                      >
+                        <ChevronLeft size={16} /> Previous
+                      </button>
+                      
+                      <span style={{ fontSize: '0.82rem', fontWeight: 600, padding: '0 0.4rem' }}>
+                        Page {currentPage} of {totalPages}
+                      </span>
+
+                      <button
+                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                        disabled={currentPage === totalPages}
+                        className="ghost-button"
+                        style={{
+                          padding: '0.35rem 0.7rem',
+                          borderRadius: '8px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.3rem',
+                          fontSize: '0.8rem',
+                          opacity: currentPage === totalPages ? 0.4 : 1,
+                          cursor: currentPage === totalPages ? 'not-allowed' : 'pointer'
+                        }}
+                      >
+                        Next <ChevronRight size={16} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </>
             )}
           </div>
         </div>

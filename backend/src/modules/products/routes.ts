@@ -33,7 +33,7 @@ export function registerProductRoutes(app: any, _store: any) {
         },
         include: { category: true },
         orderBy: { name: 'asc' },
-        take: 100,
+        ...(req.query.limit ? { take: parseInt(req.query.limit as string) } : {}),
       })
 
       const result = status === 'low'

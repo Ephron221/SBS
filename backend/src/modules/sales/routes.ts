@@ -5,7 +5,8 @@ import { db } from '../../db.js'
 export function registerSalesRoutes(app: any, _store: any) {
   const router = Router()
 
-  router.get('/', authenticate(_store), async (_req: Request, res: Response) => {
+  router.get('/', authenticate(_store), async (req: Request, res: Response) => {
+    const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined
     const sales = await db.sale.findMany({ 
       include: { 
         items: { include: { product: true } }, 
@@ -13,9 +14,9 @@ export function registerSalesRoutes(app: any, _store: any) {
         customer: { select: { name: true, phone: true } },
       }, 
       orderBy: { createdAt: 'desc' }, 
-      take: 50 
+      ...(limit ? { take: limit } : {})
     })
-    res.json({ success: true, data: sales })
+    res.json({ success: true, data: sales, total: sales.length })
   })
 
   router.post('/', authenticate(_store), async (req: AuthRequest, res: Response) => {
@@ -55,22 +56,46 @@ export function registerSalesRoutes(app: any, _store: any) {
     // Final total calculation
     const totalAmount = Math.max(0, subtotal - discountAmount)
 
-    const invoiceNumber = `INV-${Date.now()}`
-    const sale = await db.sale.create({
-      data: {
-        invoiceNumber,
-        sellerId: req.user!.id,
-        customerId: customerId || undefined,
-        customerName: customerName || 'Walk-in',
-        totalAmount,
-        discountAmount,
-        discountType,
-        salesChannel,
-        paymentMethod: paymentMethod || 'Cash',
-        items: { create: enriched },
-      },
-      include: { items: true },
-    })
+    // Generate real sequential, human-readable invoice number (e.g. INV-00117)
+    const count = await db.sale.count()
+    let seq = count + 1
+    let candidate = `INV-${String(seq).padStart(5, '0')}`
+    while (await db.sale.findUnique({ where: { invoiceNumber: candidate } })) {
+      seq++
+      candidate = `INV-${String(seq).padStart(5, '0')}`
+    }
+
+    let invoiceNumber = candidate
+    let sale: any
+    let attempts = 0
+    while (attempts < 5) {
+      try {
+        sale = await db.sale.create({
+          data: {
+            invoiceNumber,
+            sellerId: req.user!.id,
+            customerId: customerId || undefined,
+            customerName: customerName || 'Walk-in',
+            totalAmount,
+            discountAmount,
+            discountType,
+            salesChannel,
+            paymentMethod: paymentMethod || 'Cash',
+            items: { create: enriched },
+          },
+          include: { items: true },
+        })
+        break
+      } catch (err: any) {
+        if (err.code === 'P2002' && err.meta?.target?.includes('invoiceNumber')) {
+          seq++
+          invoiceNumber = `INV-${String(seq).padStart(5, '0')}`
+          attempts++
+        } else {
+          throw err
+        }
+      }
+    }
 
     for (const item of enriched) {
       const prev = await db.product.findUnique({ where: { id: item.productId } })

@@ -593,6 +593,13 @@ button, input, select, textarea { font: inherit; }
   margin-bottom: 1.75rem;
 }
 
+.finance-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.25rem;
+  margin-bottom: 1.75rem;
+}
+
 .content-stack { display: grid; gap: 1.5rem; min-width: 0; max-width: 100%; }
 .content-stack > * { min-width: 0; max-width: 100%; }
 
@@ -1328,6 +1335,7 @@ button, input, select, textarea { font: inherit; }
   .main-panel { grid-row: 2; padding: 1.5rem; height: 100%; }
   .topbar { display: none; }
   .stats-grid { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+  .finance-stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 720px) {
@@ -1337,6 +1345,7 @@ button, input, select, textarea { font: inherit; }
   .main-panel { padding: 1rem; }
   .panel-head, .toolbar-row { flex-direction: column; align-items: stretch; }
   .stats-grid { grid-template-columns: 1fr; gap: 0.85rem; }
+  .finance-stats-grid { grid-template-columns: 1fr; gap: 0.85rem; }
   .stat-card { padding: 1rem; }
   .form-actions > * { flex: 1; }
   .header-search-wrap { margin: 0; max-width: none; }
