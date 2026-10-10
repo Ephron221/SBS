@@ -70,6 +70,18 @@ export function registerProductRoutes(app: any, _store: any) {
         include: { category: true },
       })
       await db.auditLog.create({ data: { userId: req.user!.id, action: 'Created product', target: product.id, details: product.name } })
+      if (Number(currentQuantity || 0) > 0) {
+        await db.stockHistory.create({
+          data: {
+            productId: product.id,
+            previousQuantity: 0,
+            delta: Number(currentQuantity),
+            remainingQuantity: Number(currentQuantity),
+            reason: 'Initial stock on creation',
+            userId: req.user!.id,
+          },
+        })
+      }
       if (product.currentQuantity <= product.minimumStockLevel) {
         await notifyStockLeaders('Low stock alert', `${product.name} is below its minimum stock level.`)
       }
@@ -80,9 +92,17 @@ export function registerProductRoutes(app: any, _store: any) {
   })
 
   router.put('/:id', authenticate(_store), restrictTo('MANAGER', 'SUPER_ADMIN'), async (req: AuthRequest, res: Response) => {
-    const { name, categoryId, description, buyingPrice, sellingPrice, minimumStockLevel, unit, supplier, status, size, color, sku } = req.body
+    const { name, categoryId, description, buyingPrice, sellingPrice, currentQuantity, minimumStockLevel, unit, supplier, status, size, color, sku } = req.body
     const id = String(req.params.id)
     try {
+      const existing = await db.product.findUnique({ where: { id } })
+      if (!existing) return res.status(404).json({ success: false, message: 'Product not found.' })
+
+      let qtyDelta: number | null = null
+      if (currentQuantity !== undefined && Number(currentQuantity) !== existing.currentQuantity) {
+        qtyDelta = Number(currentQuantity) - existing.currentQuantity
+      }
+
       const product = await db.product.update({
         where: { id },
         data: { 
@@ -91,6 +111,7 @@ export function registerProductRoutes(app: any, _store: any) {
           ...(description !== undefined && { description }), 
           ...(buyingPrice && { buyingPrice: Number(buyingPrice) }), 
           ...(sellingPrice && { sellingPrice: Number(sellingPrice) }), 
+          ...(currentQuantity !== undefined && { currentQuantity: Number(currentQuantity) }),
           ...(minimumStockLevel && { minimumStockLevel: Number(minimumStockLevel) }), 
           ...(unit && { unit }), 
           ...(supplier && { supplier }), 
@@ -102,7 +123,28 @@ export function registerProductRoutes(app: any, _store: any) {
         include: { category: true },
       }).catch(() => null)
       if (!product) return res.status(404).json({ success: false, message: 'Product not found.' })
-      await db.auditLog.create({ data: { userId: req.user!.id, action: 'Updated product', target: product.id, details: product.name } })
+
+      if (qtyDelta !== null && qtyDelta !== 0) {
+        await db.stockHistory.create({
+          data: {
+            productId: product.id,
+            previousQuantity: existing.currentQuantity,
+            delta: qtyDelta,
+            remainingQuantity: product.currentQuantity,
+            reason: `Product updated (${qtyDelta > 0 ? 'Stock increased' : 'Stock reduced'})`,
+            userId: req.user!.id,
+          },
+        })
+      }
+
+      await db.auditLog.create({ 
+        data: { 
+          userId: req.user!.id, 
+          action: 'Updated product', 
+          target: product.id, 
+          details: `${product.name}${qtyDelta ? ` (Stock adjusted: ${qtyDelta > 0 ? '+' : ''}${qtyDelta} ${product.unit})` : ''}` 
+        } 
+      })
       res.json({ success: true, product })
     } catch (error) {
       res.status(500).json({ success: false, message: 'Failed to update product' })
@@ -169,7 +211,14 @@ export function registerProductRoutes(app: any, _store: any) {
     if (existing.currentQuantity + delta < 0) return res.status(400).json({ success: false, message: 'Stock cannot go negative.' })
     const product = await db.product.update({ where: { id: productId }, data: { currentQuantity: { increment: delta } } })
     await db.stockHistory.create({ data: { productId, previousQuantity: existing.currentQuantity, delta, remainingQuantity: product.currentQuantity, reason: reason || 'Stock adjustment', userId: req.user!.id } })
-    await db.auditLog.create({ data: { userId: req.user!.id, action: 'Adjusted stock', target: product.id, details: `${delta > 0 ? 'Restocked' : 'Reduced'} by ${Math.abs(delta)}` } })
+    await db.auditLog.create({ 
+      data: { 
+        userId: req.user!.id, 
+        action: 'Adjusted stock', 
+        target: product.id, 
+        details: `${existing.name}: ${delta > 0 ? 'Restocked' : 'Reduced'} by ${Math.abs(delta)} ${existing.unit} (${reason || (delta > 0 ? 'Restock' : 'Reduction')})` 
+      } 
+    })
     if (existing.currentQuantity > existing.minimumStockLevel && product.currentQuantity <= product.minimumStockLevel) {
       await notifyStockLeaders('Low stock alert', `${product.name} now has ${product.currentQuantity} ${product.unit} remaining (minimum: ${product.minimumStockLevel}).`)
     }

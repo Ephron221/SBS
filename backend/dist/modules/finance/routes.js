@@ -7,8 +7,20 @@ export function registerFinanceRoutes(app, _store) {
         const [sales, expenses, products] = await Promise.all([db.sale.findMany(), db.expense.findMany(), db.product.findMany()]);
         const revenue = sales.reduce((s, x) => s + x.totalAmount, 0);
         const expenseTotal = expenses.reduce((s, x) => s + x.amount, 0);
-        const stockValue = products.reduce((s, x) => s + x.buyingPrice * x.currentQuantity, 0);
-        res.json({ success: true, data: { revenue, expenses: expenseTotal, netProfit: revenue - expenseTotal, stockValue } });
+        const stockValue = products.reduce((s, x) => s + (x.buyingPrice || 0) * (x.currentQuantity || 0), 0);
+        const retailStockValue = products.reduce((s, x) => s + (x.sellingPrice || 0) * (x.currentQuantity || 0), 0);
+        const potentialProfit = retailStockValue - stockValue;
+        res.json({
+            success: true,
+            data: {
+                revenue,
+                expenses: expenseTotal,
+                netProfit: revenue - expenseTotal,
+                stockValue,
+                retailStockValue,
+                potentialProfit,
+            },
+        });
     });
     router.get('/expenses', authenticate(_store), restrictTo('MANAGER', 'SUPER_ADMIN'), async (_req, res) => {
         const expenses = await db.expense.findMany({ orderBy: { date: 'desc' }, include: { createdBy: { select: { name: true } } } });
@@ -18,8 +30,67 @@ export function registerFinanceRoutes(app, _store) {
         const { category, amount, note, date } = req.body;
         if (!category || !amount)
             return res.status(400).json({ message: 'Category and amount are required.' });
-        const expense = await db.expense.create({ data: { category, amount: Number(amount), note: note || '', date: date ? new Date(date) : new Date(), createdById: req.user.id } });
+        const expense = await db.expense.create({
+            data: {
+                category,
+                amount: Number(amount),
+                note: note || '',
+                date: date ? new Date(date) : new Date(),
+                createdById: req.user.id,
+            },
+            include: { createdBy: { select: { name: true } } },
+        });
+        await db.auditLog.create({
+            data: {
+                userId: req.user.id,
+                action: 'EXPENSE_RECORDED',
+                target: expense.id,
+                details: `Recorded expense: ${category} - RWF ${Number(amount).toLocaleString()}`,
+            },
+        }).catch(() => null);
         res.status(201).json({ success: true, data: expense });
+    });
+    router.patch('/expenses/:id', authenticate(_store), restrictTo('MANAGER', 'SUPER_ADMIN'), async (req, res) => {
+        const id = String(req.params.id);
+        const { category, amount, note, date } = req.body;
+        const existing = await db.expense.findUnique({ where: { id } });
+        if (!existing)
+            return res.status(404).json({ message: 'Expense not found.' });
+        const updated = await db.expense.update({
+            where: { id },
+            data: {
+                ...(category ? { category } : {}),
+                ...(amount !== undefined && amount !== null ? { amount: Number(amount) } : {}),
+                ...(note !== undefined ? { note } : {}),
+                ...(date ? { date: new Date(date) } : {}),
+            },
+            include: { createdBy: { select: { name: true } } },
+        });
+        await db.auditLog.create({
+            data: {
+                userId: req.user.id,
+                action: 'EXPENSE_UPDATED',
+                target: id,
+                details: `Updated expense: ${updated.category} - RWF ${Number(updated.amount).toLocaleString()}`,
+            },
+        }).catch(() => null);
+        res.json({ success: true, data: updated });
+    });
+    router.delete('/expenses/:id', authenticate(_store), restrictTo('MANAGER', 'SUPER_ADMIN'), async (req, res) => {
+        const id = String(req.params.id);
+        const existing = await db.expense.findUnique({ where: { id } });
+        if (!existing)
+            return res.status(404).json({ message: 'Expense not found.' });
+        await db.expense.delete({ where: { id } });
+        await db.auditLog.create({
+            data: {
+                userId: req.user.id,
+                action: 'EXPENSE_DELETED',
+                target: id,
+                details: `Deleted expense: ${existing.category} - RWF ${Number(existing.amount).toLocaleString()}`,
+            },
+        }).catch(() => null);
+        res.json({ success: true, message: 'Expense deleted successfully.' });
     });
     app.use('/api/finance', router);
 }

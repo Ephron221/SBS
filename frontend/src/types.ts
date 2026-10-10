@@ -69,6 +69,30 @@ export interface TopProduct { name: string; qty: number; revenue: number }
 export interface LowStockProduct { name: string; currentQuantity: number; minimumStockLevel: number; unit: string }
 export interface ChannelStat { name: string; total: number; count: number }
 export interface PaymentStat { name: string; total: number; count: number }
+export interface ReportStockAdjustment {
+  id: string
+  productId: string
+  product?: {
+    id: string
+    name: string
+    unit: string
+    sku?: string | null
+    category?: { name: string } | null
+  }
+  previousQuantity: number
+  delta: number
+  remainingQuantity: number
+  reason: string
+  createdAt: string
+  userId: string
+  user?: {
+    id: string
+    name: string
+    role: string
+    username: string
+  }
+}
+
 export interface ReportSummary {
   totalProducts: number;
   totalStock: number;
@@ -83,6 +107,7 @@ export interface ReportSummary {
   expenses: ReportExpense[];
   topProducts: TopProduct[];
   lowStockProducts: LowStockProduct[];
+  stockAdjustments?: ReportStockAdjustment[];
   salesByChannel?: ChannelStat[];
   salesByMethod?: PaymentStat[];
 }

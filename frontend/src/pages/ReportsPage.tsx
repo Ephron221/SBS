@@ -1,12 +1,15 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import {
   BadgeCheck, CircleDollarSign, Printer, ShoppingCart,
   Wallet, Calendar, FileText, TrendingUp, AlertCircle,
   Globe, CreditCard, Tag, ChevronRight, Download, Filter, Loader2,
+  ArrowUpCircle, ArrowDownCircle, History, Search, Trash2,
 } from 'lucide-react'
 import { api } from '../lib/api'
 import { useToast } from '../context/ToastContext'
-import type { ReportSummary, ReportSale } from '../types'
+import { useAuth } from '../context/AuthContext'
+import { useConfirm } from '../context/ConfirmContext'
+import type { ReportSummary, ReportSale, ReportStockAdjustment } from '../types'
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -19,20 +22,26 @@ const COLORS = ['#23415f', '#d9912e', '#10b981', '#8b5cf6', '#ef4444', '#3b82f6'
 function exportExcel(data: ReportSummary, from: string, to: string) {
   const wb = XLSX.utils.book_new()
 
+  const totalAdded = (data.stockAdjustments ?? []).filter(a => a.delta > 0).reduce((s, a) => s + a.delta, 0)
+  const totalReduced = Math.abs((data.stockAdjustments ?? []).filter(a => a.delta < 0).reduce((s, a) => s + a.delta, 0))
+
   // Summary sheet
   const summaryRows = [
-    ['Smart Boutique System — Sales Report'],
+    ['Smart Boutique System — Performance & Inventory Report'],
     [`Period: ${from} to ${to}`],
     [],
-    ['Metric', 'Value (RWF)'],
-    ['Gross Revenue', data.revenue],
-    ['Total Expenses', data.expenseTotal],
-    ['Net Profit', data.netProfit],
-    ['Total Discounts', data.totalDiscounts ?? 0],
-    ['Total Transactions', data.totalSales],
+    ['Metric', 'Value / Count'],
+    ['Gross Revenue (RWF)', data.revenue],
+    ['Total Expenses (RWF)', data.expenseTotal],
+    ['Net Profit (RWF)', data.netProfit],
+    ['Total Discounts (RWF)', data.totalDiscounts ?? 0],
+    ['Total Sales Transactions', data.totalSales],
+    ['Product Adjustments Count', (data.stockAdjustments ?? []).length],
+    ['Total Units Restocked / Added', totalAdded],
+    ['Total Units Reduced / Deducted', totalReduced],
   ]
   const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows)
-  wsSummary['!cols'] = [{ wch: 30 }, { wch: 20 }]
+  wsSummary['!cols'] = [{ wch: 32 }, { wch: 22 }]
   XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary')
 
   // Best Products sheet
@@ -64,11 +73,38 @@ function exportExcel(data: ReportSummary, from: string, to: string) {
   ]
   XLSX.utils.book_append_sheet(wb, wsTx, 'Transactions')
 
+  // Stock Adjustments sheet
+  const adjHeader = [['#', 'Date & Time', 'Product Name', 'Category', 'SKU', 'Action Type', 'Quantity Adjusted', 'Unit', 'Previous Stock', 'New Stock', 'Adjusted By (User)', 'Role', 'Reason / Note']]
+  const adjRows = (data.stockAdjustments ?? []).map((a, i) => [
+    i + 1,
+    new Date(a.createdAt).toLocaleString(),
+    a.product?.name ?? 'Unknown Product',
+    typeof a.product?.category === 'string' ? a.product.category : (a.product?.category?.name ?? 'General'),
+    a.product?.sku ?? 'N/A',
+    a.delta > 0 ? 'Stock Addition' : 'Stock Deduction',
+    a.delta > 0 ? `+${a.delta}` : `${a.delta}`,
+    a.product?.unit ?? 'Piece',
+    a.previousQuantity,
+    a.remainingQuantity,
+    a.user?.name ?? 'System',
+    a.user?.role?.replace('_', ' ') ?? 'ADMIN',
+    a.reason || 'Stock adjustment',
+  ])
+  const wsAdj = XLSX.utils.aoa_to_sheet([...adjHeader, ...adjRows])
+  wsAdj['!cols'] = [
+    { wch: 5 }, { wch: 22 }, { wch: 28 }, { wch: 18 }, { wch: 14 },
+    { wch: 18 }, { wch: 18 }, { wch: 12 }, { wch: 16 }, { wch: 16 },
+    { wch: 22 }, { wch: 16 }, { wch: 36 },
+  ]
+  XLSX.utils.book_append_sheet(wb, wsAdj, 'Stock Adjustments')
+
   XLSX.writeFile(wb, `SBS_Report_${from}_${to}.xlsx`)
 }
 
 export default function ReportsPage() {
   const { toast } = useToast()
+  const { isAdmin } = useAuth()
+  const { confirm } = useConfirm()
   const today = new Date()
   const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10)
   const todayStr = today.toISOString().slice(0, 10)
@@ -76,6 +112,10 @@ export default function ReportsPage() {
   const [to, setTo] = useState(todayStr)
   const [data, setData] = useState<ReportSummary | null>(null)
   const [loading, setLoading] = useState(false)
+  const [adjFilter, setAdjFilter] = useState<'all' | 'add' | 'remove'>('all')
+  const [adjQuery, setAdjQuery] = useState('')
+  const [deletingAdjId, setDeletingAdjId] = useState<string | null>(null)
+  const [clearingAdjs, setClearingAdjs] = useState(false)
 
   const fetchReport = useCallback(async () => {
     setLoading(true)
@@ -90,6 +130,72 @@ export default function ReportsPage() {
   }, [from, to])
 
   useEffect(() => { void fetchReport() }, [])
+
+  const adjustments = data?.stockAdjustments ?? []
+  const totalAddedUnits = useMemo(
+    () => adjustments.filter(a => a.delta > 0).reduce((acc, a) => acc + a.delta, 0),
+    [adjustments]
+  )
+  const totalReducedUnits = useMemo(
+    () => Math.abs(adjustments.filter(a => a.delta < 0).reduce((acc, a) => acc + a.delta, 0)),
+    [adjustments]
+  )
+
+  const filteredAdjustments = useMemo(() => {
+    return adjustments.filter(a => {
+      if (adjFilter === 'add' && a.delta <= 0) return false
+      if (adjFilter === 'remove' && a.delta >= 0) return false
+      if (!adjQuery.trim()) return true
+      const q = adjQuery.toLowerCase()
+      const pName = (a.product?.name ?? '').toLowerCase()
+      const uName = (a.user?.name ?? '').toLowerCase()
+      const reason = (a.reason ?? '').toLowerCase()
+      const sku = (a.product?.sku ?? '').toLowerCase()
+      return pName.includes(q) || uName.includes(q) || reason.includes(q) || sku.includes(q)
+    })
+  }, [adjustments, adjFilter, adjQuery])
+
+  const handleDeleteAdjustment = async (id: string, productName?: string) => {
+    const ok = await confirm({
+      title: 'Delete Adjustment Record?',
+      message: `Are you sure you want to remove this adjustment record for "${productName || 'product'}" from the report? This action cannot be undone.`,
+      danger: true,
+      confirmLabel: 'Delete Record',
+    })
+    if (!ok) return
+
+    setDeletingAdjId(id)
+    try {
+      await api.delete(`/api/reports/stock-adjustments/${id}`)
+      toast.success('Record Deleted', 'Adjustment record was removed.')
+      await fetchReport()
+    } catch (err: any) {
+      toast.error('Delete Failed', err.response?.data?.message || 'Failed to delete adjustment record.')
+    } finally {
+      setDeletingAdjId(null)
+    }
+  }
+
+  const handleClearAllAdjustments = async () => {
+    const ok = await confirm({
+      title: 'Clear All Adjustment Records?',
+      message: `Are you sure you want to clear all ${adjustments.length} adjustment records for the selected period (${from} to ${to})? This cannot be undone.`,
+      danger: true,
+      confirmLabel: 'Clear All',
+    })
+    if (!ok) return
+
+    setClearingAdjs(true)
+    try {
+      await api.delete(`/api/reports/stock-adjustments?from=${from}T00:00:00&to=${to}T23:59:59`)
+      toast.success('Cleared', 'All adjustment records for this period were deleted.')
+      await fetchReport()
+    } catch (err: any) {
+      toast.error('Clear Failed', err.response?.data?.message || 'Failed to clear adjustment records.')
+    } finally {
+      setClearingAdjs(false)
+    }
+  }
 
 
   return (
@@ -133,7 +239,7 @@ export default function ReportsPage() {
                 exportExcel(data, from, to)
                 toast.success('Excel Ready', 'Excel report (.xlsx) downloaded.')
               }}
-              title="Download Excel (.xlsx) — 3 sheets: Summary, Best Products, Transactions"
+              title="Download Excel (.xlsx) — 4 sheets: Summary, Best Products, Transactions, Stock Adjustments"
             >
               <Download size={16} /> Excel
             </button>
@@ -388,6 +494,300 @@ export default function ReportsPage() {
                   </div>
                 )}
               </div>
+            </div>
+
+            {/* ── Product Stock Adjustments & Updates ── */}
+            <div className="panel-card" style={{ padding: '1.5rem', marginTop: '1.5rem' }}>
+              <div className="panel-head" style={{ marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                  <div className="stat-icon" style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(217, 145, 46, 0.15)', color: 'var(--accent)' }}>
+                    <History size={22} />
+                  </div>
+                  <div>
+                    <h3 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0 }}>Product Adjustments & Updates</h3>
+                    <p className="muted" style={{ fontSize: '0.8rem', margin: 0 }}>
+                      Audit log of manual stock additions, reductions, and updates performed by Admins and Managers
+                    </p>
+                  </div>
+                </div>
+
+                {/* Counters / Stats & Actions */}
+                <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span className="badge badge-info" style={{ fontWeight: 800, fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}>
+                    {adjustments.length} Adjustments
+                  </span>
+                  {totalAddedUnits > 0 && (
+                    <span className="badge badge-success" style={{ fontWeight: 800, fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}>
+                      +{totalAddedUnits.toLocaleString()} Units Added
+                    </span>
+                  )}
+                  {totalReducedUnits > 0 && (
+                    <span className="badge badge-danger" style={{ fontWeight: 800, fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}>
+                      -{totalReducedUnits.toLocaleString()} Units Reduced
+                    </span>
+                  )}
+                  {isAdmin && adjustments.length > 0 && (
+                    <button
+                      type="button"
+                      className="ghost-button no-print"
+                      onClick={handleClearAllAdjustments}
+                      disabled={clearingAdjs}
+                      title="Clear all adjustment records for this period (Admin only)"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.35rem',
+                        padding: '0.35rem 0.75rem',
+                        fontSize: '0.78rem',
+                        fontWeight: 700,
+                        color: '#ef4444',
+                        border: '1px solid rgba(239, 68, 68, 0.3)',
+                        borderRadius: 8,
+                      }}
+                    >
+                      {clearingAdjs ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                      Clear All
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Toolbar: Filter tabs & Search (hidden in print) */}
+              <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.25rem' }}>
+                <div className="segmented-control" style={{ background: 'var(--bg-main)', padding: '0.25rem', borderRadius: 10 }}>
+                  <button
+                    type="button"
+                    className={adjFilter === 'all' ? 'active' : ''}
+                    onClick={() => setAdjFilter('all')}
+                    style={{ fontSize: '0.8rem', fontWeight: 700, padding: '0.35rem 0.85rem' }}
+                  >
+                    All ({adjustments.length})
+                  </button>
+                  <button
+                    type="button"
+                    className={adjFilter === 'add' ? 'active' : ''}
+                    onClick={() => setAdjFilter('add')}
+                    style={{ fontSize: '0.8rem', fontWeight: 700, padding: '0.35rem 0.85rem', color: adjFilter === 'add' ? '#166534' : undefined }}
+                  >
+                    Additions ({adjustments.filter(a => a.delta > 0).length})
+                  </button>
+                  <button
+                    type="button"
+                    className={adjFilter === 'remove' ? 'active' : ''}
+                    onClick={() => setAdjFilter('remove')}
+                    style={{ fontSize: '0.8rem', fontWeight: 700, padding: '0.35rem 0.85rem', color: adjFilter === 'remove' ? '#991b1b' : undefined }}
+                  >
+                    Reductions ({adjustments.filter(a => a.delta < 0).length})
+                  </button>
+                </div>
+
+                <div style={{ position: 'relative', minWidth: 260, flex: 1, maxWidth: 380 }}>
+                  <Search size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-subtle)' }} />
+                  <input
+                    className="input-field"
+                    value={adjQuery}
+                    onChange={e => setAdjQuery(e.target.value)}
+                    placeholder="Search product, user, or reason..."
+                    style={{ paddingLeft: '2.4rem', height: '38px', fontSize: '0.85rem', width: '100%' }}
+                  />
+                </div>
+              </div>
+
+              {/* Adjustments List / Table */}
+              {filteredAdjustments.length === 0 ? (
+                <div className="empty-state" style={{ padding: '3rem 0', textAlign: 'center' }}>
+                  <History size={40} style={{ opacity: 0.2, margin: '0 auto 0.75rem' }} />
+                  <p style={{ fontWeight: 700, fontSize: '0.95rem' }}>No product adjustments found</p>
+                  <p className="muted" style={{ fontSize: '0.82rem' }}>
+                    {adjustments.length === 0
+                      ? 'No stock updates were made by admin or managers during this period.'
+                      : 'No adjustments match the search or filter criteria.'}
+                  </p>
+                </div>
+              ) : (
+                <div className="list-stack">
+                  {filteredAdjustments.map((a: ReportStockAdjustment) => {
+                    const isAddition = a.delta > 0
+                    const roleLabel = a.user?.role === 'SUPER_ADMIN' ? 'Super Admin' : a.user?.role === 'MANAGER' ? 'Manager' : (a.user?.role || 'Staff')
+                    const unitName = a.product?.unit || 'Unit'
+                    const categoryName = typeof a.product?.category === 'string' ? a.product.category : (a.product?.category?.name || 'General')
+
+                    return (
+                      <div
+                        key={a.id}
+                        className="list-item"
+                        style={{
+                          padding: '1rem',
+                          borderRadius: 14,
+                          border: '1px solid var(--border)',
+                          background: 'var(--bg-card)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '1.25rem',
+                          flexWrap: 'wrap',
+                        }}
+                      >
+                        {/* 1. Product Name & Meta */}
+                        <div style={{ display: 'flex', gap: '0.9rem', alignItems: 'center', minWidth: 240, flex: 1.2 }}>
+                          <div
+                            className="stat-icon"
+                            style={{
+                              width: 44,
+                              height: 44,
+                              borderRadius: 12,
+                              background: isAddition ? '#dcfce7' : '#fee2e2',
+                              color: isAddition ? '#166534' : '#991b1b',
+                              flexShrink: 0,
+                            }}
+                          >
+                            {isAddition ? <ArrowUpCircle size={22} /> : <ArrowDownCircle size={22} />}
+                          </div>
+                          <div>
+                            <p style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--text-main)', marginBottom: '0.2rem' }}>
+                              {a.product?.name ?? 'Unknown Product'}
+                            </p>
+                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                              <span className="badge badge-info" style={{ fontSize: '0.68rem', padding: '0.1rem 0.45rem', fontWeight: 700 }}>
+                                {categoryName}
+                              </span>
+                              {a.product?.sku && (
+                                <span className="muted" style={{ fontSize: '0.72rem', fontWeight: 600 }}>
+                                  SKU: {a.product.sku}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 2. Quantity Adjusted & Stock Progression */}
+                        <div style={{ minWidth: 170, textAlign: 'left' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', marginBottom: '0.2rem' }}>
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '0.3rem',
+                                padding: '0.25rem 0.65rem',
+                                borderRadius: 8,
+                                fontWeight: 900,
+                                fontSize: '0.9rem',
+                                background: isAddition ? '#dcfce7' : '#fee2e2',
+                                color: isAddition ? '#166534' : '#991b1b',
+                              }}
+                            >
+                              {isAddition ? `+${a.delta}` : `${a.delta}`} {unitName}
+                            </span>
+                            <span className="muted" style={{ fontSize: '0.75rem', fontWeight: 600 }}>
+                              {isAddition ? 'Restocked' : 'Reduced'}
+                            </span>
+                          </div>
+                          <p className="muted" style={{ fontSize: '0.73rem', margin: 0 }}>
+                            Stock: <strong>{a.previousQuantity}</strong> → <strong style={{ color: 'var(--text-main)' }}>{a.remainingQuantity}</strong> {unitName}
+                          </p>
+                        </div>
+
+                        {/* 3. User Who Did This Task */}
+                        <div style={{ minWidth: 150 }}>
+                          <p className="muted" style={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.2rem' }}>
+                            Adjusted By
+                          </p>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <div
+                              style={{
+                                width: 28,
+                                height: 28,
+                                borderRadius: '50%',
+                                background: 'var(--primary)',
+                                color: 'white',
+                                display: 'grid',
+                                placeItems: 'center',
+                                fontSize: '0.75rem',
+                                fontWeight: 800,
+                                flexShrink: 0,
+                              }}
+                            >
+                              {(a.user?.name || 'U').charAt(0)}
+                            </div>
+                            <div>
+                              <p style={{ fontWeight: 700, fontSize: '0.85rem', margin: 0 }}>{a.user?.name || 'System'}</p>
+                              <span
+                                style={{
+                                  fontSize: '0.65rem',
+                                  fontWeight: 800,
+                                  color: a.user?.role === 'SUPER_ADMIN' ? '#8b5cf6' : '#2563eb',
+                                }}
+                              >
+                                {roleLabel}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 4. Reason / Note */}
+                        <div style={{ minWidth: 160, flex: 1, maxWidth: 240 }}>
+                          <p className="muted" style={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.2rem' }}>
+                            Reason / Note
+                          </p>
+                          <p
+                            style={{
+                              fontSize: '0.8rem',
+                              color: 'var(--text-muted)',
+                              margin: 0,
+                              fontWeight: 600,
+                              background: 'var(--bg-main)',
+                              padding: '0.25rem 0.6rem',
+                              borderRadius: 6,
+                              display: 'inline-block',
+                              maxWidth: '100%',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                            title={a.reason}
+                          >
+                            {a.reason || 'Stock adjustment'}
+                          </p>
+                        </div>
+
+                        {/* 5. Date & Time and Action */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', justifyContent: 'flex-end', minWidth: 160 }}>
+                          <div style={{ textAlign: 'right' }}>
+                            <p style={{ fontWeight: 700, fontSize: '0.82rem', margin: 0, color: 'var(--text-main)' }}>
+                              {new Date(a.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+                            </p>
+                            <p className="muted" style={{ fontSize: '0.72rem', margin: 0 }}>
+                              {new Date(a.createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          </div>
+
+                          {isAdmin && (
+                            <button
+                              type="button"
+                              className="ghost-button icon-btn no-print"
+                              onClick={() => handleDeleteAdjustment(a.id, a.product?.name)}
+                              disabled={deletingAdjId === a.id}
+                              title="Delete this adjustment record (Admin only)"
+                              style={{
+                                width: 32,
+                                height: 32,
+                                color: '#ef4444',
+                                border: '1px solid rgba(239, 68, 68, 0.25)',
+                                borderRadius: 8,
+                                flexShrink: 0,
+                                display: 'grid',
+                                placeItems: 'center',
+                              }}
+                            >
+                              {deletingAdjId === a.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
 
             {/* Transaction Journal */}
